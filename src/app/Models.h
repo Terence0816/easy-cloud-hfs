@@ -5,7 +5,7 @@
 #include <QJsonObject>
 #include <QString>
 #include <QStringList>
-#include <QtTypes>
+#include <QtGlobal>
 
 enum class ShareType {
     File,

@@ -12,6 +12,7 @@
 #include <QJsonObject>
 #include <QMimeDatabase>
 #include <QNetworkInterface>
+#include <QPair>
 #include <QRegularExpression>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -294,6 +295,13 @@ void HttpFileServer::setLogoPath(const QString &logoPath)
     m_logoPath = logoPath;
 }
 
+void HttpFileServer::setWebLanguage(const QString &language)
+{
+    m_webLanguage = language.trimmed().compare(QStringLiteral("English"), Qt::CaseInsensitive) == 0
+                        ? QStringLiteral("English")
+                        : QStringLiteral("繁體中文");
+}
+
 void HttpFileServer::setDownloadSettings(const DownloadSettings &settings)
 {
     m_downloadSettings = settings;
@@ -490,6 +498,68 @@ void HttpFileServer::processRequest(QTcpSocket *socket, ConnectionState &state)
     const QUrl url(QStringLiteral("http://local") + state.target);
     const QString path = url.path(QUrl::FullyDecoded);
     const QUrlQuery query(url);
+
+    // Web language is selected by each visitor, not by the desktop application's
+    // global settings. A ?lang=... request stores a per-browser cookie and then
+    // redirects to the same URL without the temporary query parameter.
+    const QString requestedLanguage = query.queryItemValue(QStringLiteral("lang"), QUrl::FullyDecoded).trimmed();
+    if (!requestedLanguage.isEmpty()) {
+        const bool english = requestedLanguage.compare(QStringLiteral("en"), Qt::CaseInsensitive) == 0
+                             || requestedLanguage.compare(QStringLiteral("en-US"), Qt::CaseInsensitive) == 0
+                             || requestedLanguage.compare(QStringLiteral("English"), Qt::CaseInsensitive) == 0;
+        const QByteArray cookieValue = english ? QByteArrayLiteral("en") : QByteArrayLiteral("zh-TW");
+
+        QUrl cleanUrl = url;
+        QUrlQuery cleanQuery(cleanUrl);
+        cleanQuery.removeAllQueryItems(QStringLiteral("lang"));
+        cleanUrl.setQuery(cleanQuery);
+
+        QString redirectTarget = cleanUrl.path(QUrl::FullyEncoded);
+        if (redirectTarget.isEmpty()) {
+            redirectTarget = QStringLiteral("/");
+        }
+        const QString encodedQuery = cleanUrl.query(QUrl::FullyEncoded);
+        if (!encodedQuery.isEmpty()) {
+            redirectTarget += QStringLiteral("?") + encodedQuery;
+        }
+
+        QByteArray response;
+        response += QByteArrayLiteral("HTTP/1.1 302 Found\r\n");
+        response += QByteArrayLiteral("Location: ") + redirectTarget.toUtf8() + QByteArrayLiteral("\r\n");
+        response += QByteArrayLiteral("Set-Cookie: hfs_lang=") + cookieValue
+                    + QByteArrayLiteral("; Path=/; Max-Age=31536000; SameSite=Lax\r\n");
+        response += QByteArrayLiteral("Cache-Control: no-store\r\n");
+        response += QByteArrayLiteral("Connection: close\r\n");
+        response += QByteArrayLiteral("Content-Length: 0\r\n\r\n");
+        socket->write(response);
+        socket->disconnectFromHost();
+        return;
+    }
+
+    QString requestWebLanguage = QStringLiteral("繁體中文");
+    const QString cookieHeader = headerValue(state.headers, QStringLiteral("cookie"));
+    const QStringList cookies = cookieHeader.split(QLatin1Char(';'), Qt::SkipEmptyParts);
+    for (const QString &cookie : cookies) {
+        const QString trimmed = cookie.trimmed();
+        if (!trimmed.startsWith(QStringLiteral("hfs_lang="), Qt::CaseInsensitive)) {
+            continue;
+        }
+        const QString value = trimmed.mid(QStringLiteral("hfs_lang=").size()).trimmed();
+        if (value.compare(QStringLiteral("en"), Qt::CaseInsensitive) == 0
+            || value.compare(QStringLiteral("English"), Qt::CaseInsensitive) == 0) {
+            requestWebLanguage = QStringLiteral("English");
+        }
+        break;
+    }
+
+    const QString previousWebLanguage = m_webLanguage;
+    m_webLanguage = requestWebLanguage;
+    struct WebLanguageRestore {
+        QString *target = nullptr;
+        QString previous;
+        ~WebLanguageRestore() { if (target) *target = previous; }
+    } webLanguageRestore{&m_webLanguage, previousWebLanguage};
+
     const bool potplayerRequest = path.startsWith(QStringLiteral("/__pot/"));
 
     if (path == QStringLiteral("/__logo")) {
@@ -1489,7 +1559,7 @@ QByteArray HttpFileServer::renderHomePage() const
         "</style></head>"
         "<body><div class='wrap'><div class='hero'><img src='/__logo'><div><h1 class='title'>%1</h1><div class='sub'>%2</div></div></div><div class='grid'>%3</div></div></body></html>")
                              .arg(escapeHtml(m_siteName), hint, cards);
-    return html.toUtf8();
+    return localizeWebHtml(html).toUtf8();
 #endif
     QString rows;
     QJsonArray galleryItems;
@@ -1498,7 +1568,7 @@ QByteArray HttpFileServer::renderHomePage() const
         const bool isImageShare = share.type == ShareType::File && isImageFilePath(share.sourcePath);
         const bool isAudioShare = share.type == ShareType::File && isAudioFilePath(share.sourcePath);
         const bool isVideoShare = share.type == ShareType::File && isVideoFilePath(share.sourcePath);
-        const QString infoText = isFolder ? QStringLiteral("可直接進入資料夾") : humanReadableSize(share.pinnedSize);
+        const QString infoText = isFolder ? webTx(QStringLiteral("可直接進入資料夾"), QStringLiteral("Open folder")) : humanReadableSize(share.pinnedSize);
         if (isImageShare) {
             const QString href = routeForShare(share);
             const QString previewHref = href + QStringLiteral("?__inline=1");
@@ -1528,7 +1598,8 @@ QByteArray HttpFileServer::renderHomePage() const
             const QString viewerHref = href + QStringLiteral("?__media=1");
             const QString iconClass = isVideoShare ? QStringLiteral("icon video") : QStringLiteral("icon audio");
             const QString iconText = isVideoShare ? QStringLiteral("V") : QStringLiteral("A");
-            const QString noteText = isVideoShare ? QStringLiteral("線上播放") : QStringLiteral("音樂播放");
+            const QString noteText = isVideoShare ? webTx(QStringLiteral("線上播放"), QStringLiteral("Play online"))
+                                                  : webTx(QStringLiteral("音樂播放"), QStringLiteral("Play audio"));
 
             rows += QStringLiteral(
                         "<div class='row media-row'>"
@@ -1566,7 +1637,8 @@ QByteArray HttpFileServer::renderHomePage() const
                          iconClass,
                          iconText,
                          escapeHtml(share.name),
-                         isFolder ? QStringLiteral("資料夾") : QStringLiteral("檔案"),
+                         isFolder ? webTx(QStringLiteral("資料夾"), QStringLiteral("Folder"))
+                                  : webTx(QStringLiteral("檔案"), QStringLiteral("File")),
                          escapeHtml(infoText));
     }
 
@@ -1736,7 +1808,7 @@ QByteArray HttpFileServer::renderHomePage() const
         "</style></head>"
         "<body><div class='wrap'><div class='hero'><img src='/__logo'><div><h1 class='title'>%1</h1><div class='sub'>%2</div></div></div><div class='list'>%3</div>%4</div></body></html>")
                              .arg(escapeHtml(m_siteName), hint, rows, galleryBlock);
-    return html.toUtf8();
+    return localizeWebHtml(html).toUtf8();
 }
 
 QByteArray HttpFileServer::renderLoginPage(bool badPassword) const
@@ -1763,7 +1835,7 @@ QByteArray HttpFileServer::renderLoginPage(bool badPassword) const
         "<button type='submit'>進入下載頁面</button>"
         "</form></div></body></html>")
                              .arg(escapeHtml(m_siteName), alert);
-    return html.toUtf8();
+    return localizeWebHtml(html).toUtf8();
 }
 
 QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
@@ -1865,7 +1937,8 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                                                  .arg(directorySortKeyValue(sortKey), directorySortOrderValue(sortDescending));
             const QString iconClass = isVideoEntry ? QStringLiteral("icon video") : QStringLiteral("icon audio");
             const QString iconText = isVideoEntry ? QStringLiteral("V") : QStringLiteral("A");
-            const QString noteText = isVideoEntry ? QStringLiteral("線上播放") : QStringLiteral("音樂播放");
+            const QString noteText = isVideoEntry ? webTx(QStringLiteral("線上播放"), QStringLiteral("Play online"))
+                                                 : webTx(QStringLiteral("音樂播放"), QStringLiteral("Play audio"));
 
             itemsHtml += QStringLiteral(
                              "<div class='row selectable-row media-row' data-kind='file' data-path='%1' data-download='%2'>"
@@ -2211,7 +2284,7 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                              .arg(galleryJson);
     }
 
-    const QString currentLabel = relativePath.isEmpty() ? QStringLiteral("根目錄") : relativePath;
+    const QString currentLabel = relativePath.isEmpty() ? webTx(QStringLiteral("根目錄"), QStringLiteral("Root")) : relativePath;
     const QString sortBar = QStringLiteral(
                                 "<div class='sort-bar'>"
                                 "%1"
@@ -2425,7 +2498,7 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                                   uploadBlock,
                                   galleryBlock,
                                   selectionScript);
-    return html.toUtf8();
+    return localizeWebHtml(html).toUtf8();
 }
 
 QByteArray HttpFileServer::renderImageViewerPage(const QString &pageTitle,
@@ -2518,7 +2591,7 @@ QByteArray HttpFileServer::renderImageViewerPage(const QString &pageTitle,
     html.replace(QStringLiteral("{{NEXT_HREF}}"), escapeHtml(nextHref));
     html.replace(QStringLiteral("{{PREVIOUS_BUTTON}}"), previousButton);
     html.replace(QStringLiteral("{{NEXT_BUTTON}}"), nextButton);
-    return html.toUtf8();
+    return localizeWebHtml(html).toUtf8();
 }
 
 QByteArray HttpFileServer::renderMediaViewerPage(const QString &pageTitle,
@@ -2698,7 +2771,7 @@ QByteArray HttpFileServer::renderMediaViewerPage(const QString &pageTitle,
     html.replace(QStringLiteral("{{MEDIA_ELEMENT}}"), mediaElement);
     html.replace(QStringLiteral("{{PREVIOUS_BUTTON}}"), previousButton);
     html.replace(QStringLiteral("{{NEXT_BUTTON}}"), nextButton);
-    return html.toUtf8();
+    return localizeWebHtml(html).toUtf8();
 }
 
 QByteArray HttpFileServer::renderSharedImageViewerPage(const ShareItem &share) const
@@ -2863,7 +2936,7 @@ QByteArray HttpFileServer::renderSharedMediaViewerPage(const ShareItem &share, b
     const QString subtitleHref = !subtitlePath.isEmpty() ? baseHref + QStringLiteral("?__subtitle=1") : QString();
     const QString potplayerPath = baseHref + QStringLiteral("?__m3u8=1");
     if (!subtitleHref.isEmpty()) {
-        metaText += QStringLiteral(" · 已載入字幕");
+        metaText += webTx(QStringLiteral(" · 已載入字幕"), QStringLiteral(" · Subtitles loaded"));
     }
 
     const QString playlistJson =
@@ -2960,7 +3033,7 @@ QByteArray HttpFileServer::renderDirectoryMediaViewerPage(const ShareItem &share
     const QString subtitleHref = !subtitlePath.isEmpty() ? fileHref + QStringLiteral("?__subtitle=1") : QString();
     const QString potplayerPath = fileHref + QStringLiteral("?__m3u8=1");
     if (!subtitleHref.isEmpty()) {
-        metaText += QStringLiteral(" · 已載入字幕");
+        metaText += webTx(QStringLiteral(" · 已載入字幕"), QStringLiteral(" · Subtitles loaded"));
     }
 
     const QString playlistJson =
@@ -3039,7 +3112,7 @@ QByteArray HttpFileServer::renderMessagePage(const QString &title, const QString
         "</style></head>"
         "<body><div class='box'><h1>%1</h1><p>%2</p></div></body></html>")
                              .arg(escapeHtml(title), escapeHtml(body));
-    return html.toUtf8();
+    return localizeWebHtml(html).toUtf8();
 }
 
 QByteArray HttpFileServer::serveLogo() const
@@ -3068,6 +3141,178 @@ QString HttpFileServer::escapeHtml(const QString &value) const
     escaped.replace(QLatin1Char('"'), QStringLiteral("&quot;"));
     escaped.replace(QLatin1Char('\''), QStringLiteral("&#39;"));
     return escaped;
+}
+
+QString HttpFileServer::webTx(const QString &zh, const QString &en) const
+{
+    return m_webLanguage.compare(QStringLiteral("English"), Qt::CaseInsensitive) == 0 ? en : zh;
+}
+
+QString HttpFileServer::localizeWebHtml(QString html) const
+{
+    const bool english = m_webLanguage.compare(QStringLiteral("English"), Qt::CaseInsensitive) == 0;
+
+    if (english) {
+    static const QList<QPair<QString, QString>> replacements = {
+        {QStringLiteral("<!doctype html><html><head>"), QStringLiteral("<!doctype html><html lang='en'><head>")},
+        {QStringLiteral("目前還沒有任何分享項目，請回到桌面程式拖曳檔案或資料夾加入分享。"), QStringLiteral("No shared items yet. Add files or folders from the desktop app.")},
+        {QStringLiteral("目前尚無可下載的分享項目。"), QStringLiteral("No shared items are available yet.")},
+        {QStringLiteral("可直接瀏覽或下載分享內容"), QStringLiteral("Browse or download shared content")},
+        {QStringLiteral("進入前需要輸入下載密碼"), QStringLiteral("Enter the download password to continue")},
+        {QStringLiteral("此站台已啟用下載密碼保護"), QStringLiteral("This site is protected by a download password")},
+        {QStringLiteral("<div class='row-note'>圖片預覽</div>"), QStringLiteral("<div class='row-note'>Image preview</div>")},
+        {QStringLiteral(">直接下載</a>"), QStringLiteral(">Download</a>")},
+        {QStringLiteral("aria-label='關閉預覽'"), QStringLiteral("aria-label='Close preview'")},
+        {QStringLiteral("aria-label='上一張'"), QStringLiteral("aria-label='Previous image'")},
+        {QStringLiteral("aria-label='下一張'"), QStringLiteral("aria-label='Next image'")},
+        {QStringLiteral(">下載原圖</a>"), QStringLiteral(">Download original</a>")},
+        {QStringLiteral("密碼錯誤，請重新輸入。"), QStringLiteral("Incorrect password. Please try again.")},
+        {QStringLiteral("此分享頁面已加上下載密碼。請輸入正確密碼後繼續。"), QStringLiteral("This share is password-protected. Enter the correct password to continue.")},
+        {QStringLiteral("請輸入下載密碼"), QStringLiteral("Enter download password")},
+        {QStringLiteral("進入下載頁面"), QStringLiteral("Continue")},
+        {QStringLiteral("aria-label='選取 "), QStringLiteral("aria-label='Select ")},
+        {QStringLiteral("<div class='row-note'>資料夾</div>"), QStringLiteral("<div class='row-note'>Folder</div>")},
+        {QStringLiteral("<div class='row-size'>資料夾</div>"), QStringLiteral("<div class='row-size'>Folder</div>")},
+        {QStringLiteral("<div class='row-note'>一般檔案</div>"), QStringLiteral("<div class='row-note'>File</div>")},
+        {QStringLiteral("這個資料夾目前沒有任何檔案。"), QStringLiteral("This folder is empty.")},
+        {QStringLiteral("<div class='upload-title'>上傳檔案</div>"), QStringLiteral("<div class='upload-title'>Upload files</div>")},
+        {QStringLiteral("可一次選擇多個檔案，完成後會自動重新整理清單。"), QStringLiteral("Select multiple files at once. The list refreshes automatically when uploads finish.")},
+        {QStringLiteral("'分段重試中：'"), QStringLiteral("'Retrying chunk: '")},
+        {QStringLiteral("'分段上傳中：'"), QStringLiteral("'Uploading chunks: '")},
+        {QStringLiteral("'上傳中：'"), QStringLiteral("'Uploading: '")},
+        {QStringLiteral("'完成：'"), QStringLiteral("'Completed: '")},
+        {QStringLiteral("'失敗：'"), QStringLiteral("'Failed: '")},
+        {QStringLiteral(">刪除所選<"), QStringLiteral(">Delete Selected<")},
+        {QStringLiteral(">下載所選<"), QStringLiteral(">Download Selected<")},
+        {QStringLiteral(">建立資料夾<"), QStringLiteral(">New Folder<")},
+        {QStringLiteral(">未選取項目<"), QStringLiteral(">No items selected<")},
+        {QStringLiteral("selectionDelete.textContent=count>0?'刪除所選 ('+count+')':'刪除所選';"), QStringLiteral("selectionDelete.textContent=count>0?'Delete Selected ('+count+')':'Delete Selected';")},
+        {QStringLiteral("selectionDownload.textContent=count>0?'下載所選 ('+count+')':'下載所選';"), QStringLiteral("selectionDownload.textContent=count>0?'Download Selected ('+count+')':'Download Selected';")},
+        {QStringLiteral("selectionSummary.textContent=count>0?'已選取 '+count+' 項':(hfsSelectionConfig.createDirectoryAllowed?'可建立資料夾':'未選取項目');"), QStringLiteral("selectionSummary.textContent=count>0?'Selected '+count+' items':(hfsSelectionConfig.createDirectoryAllowed?'You can create folders':'No items selected');")},
+        {QStringLiteral("確定要刪除已選取的 "), QStringLiteral("Delete the selected ")},
+        {QStringLiteral(" 個項目嗎？"), QStringLiteral(" items?")},
+        {QStringLiteral("'刪除中...'"), QStringLiteral("'Deleting...'")},
+        {QStringLiteral("'刪除失敗：'"), QStringLiteral("'Delete failed: '")},
+        {QStringLiteral("'請輸入新資料夾名稱'"), QStringLiteral("'Enter a new folder name'")},
+        {QStringLiteral("'資料夾名稱不可為空。'"), QStringLiteral("'Folder name cannot be empty.'")},
+        {QStringLiteral("'建立中...'"), QStringLiteral("'Creating...'")},
+        {QStringLiteral("'建立資料夾失敗：'"), QStringLiteral("'Failed to create folder: '")},
+        {QStringLiteral("<span class='sort-label'>排序</span>"), QStringLiteral("<span class='sort-label'>Sort</span>")},
+        {QStringLiteral(">檔名</a>"), QStringLiteral(">Name</a>")},
+        {QStringLiteral(">日期</a>"), QStringLiteral(">Date</a>")},
+        {QStringLiteral(">大小</a>"), QStringLiteral(">Size</a>")},
+        {QStringLiteral(">升冪</a>"), QStringLiteral(">Ascending</a>")},
+        {QStringLiteral(">降冪</a>"), QStringLiteral(">Descending</a>")},
+        {QStringLiteral(">返回上一層</a>"), QStringLiteral(">Back</a>")},
+        {QStringLiteral("<div class='meta'>目前路徑："), QStringLiteral("<div class='meta'>Current path: ")},
+        {QStringLiteral("‹ 上一張"), QStringLiteral("‹ Previous")},
+        {QStringLiteral("下一張 ›"), QStringLiteral("Next ›")},
+        {QStringLiteral(">返回相簿</a>"), QStringLiteral(">Back to gallery</a>")},
+        {QStringLiteral("‹ 上一個"), QStringLiteral("‹ Previous")},
+        {QStringLiteral("下一個 ›"), QStringLiteral("Next ›")},
+        {QStringLiteral("label='中文字幕'"), QStringLiteral("label='Subtitles'")},
+        {QStringLiteral("PotPlayer 播放"), QStringLiteral("Play in PotPlayer")},
+        {QStringLiteral("可直接線上播放影片；若想改用外部播放器，可使用 PotPlayer 播放。"), QStringLiteral("Play the video in your browser, or open it with PotPlayer.")},
+        {QStringLiteral("可直接播放音樂，播放結束後會自動切換下一首，也可開啟亂數播放。"), QStringLiteral("Play audio in your browser. The next track starts automatically, with optional shuffle playback.")},
+        {QStringLiteral(">返回清單</a>"), QStringLiteral(">Back to list</a>")},
+        {QStringLiteral("亂數播放：關閉"), QStringLiteral("Shuffle: Off")},
+        {QStringLiteral("亂數播放：開啟"), QStringLiteral("Shuffle: On")},
+        {QStringLiteral("找不到內容"), QStringLiteral("Content not found")},
+        {QStringLiteral("指定的分享項目或路徑不存在，請返回上一頁重新確認。"), QStringLiteral("The requested share or path does not exist. Go back and try again.")},
+        {QStringLiteral("請求無效"), QStringLiteral("Invalid request")},
+        {QStringLiteral("路徑錯誤"), QStringLiteral("Invalid path")},
+        {QStringLiteral("請求的目錄超出分享範圍。"), QStringLiteral("The requested directory is outside the shared area.")},
+        {QStringLiteral("資料夾不存在"), QStringLiteral("Folder not found")},
+        {QStringLiteral("這個目錄目前已不存在，請返回上一頁。"), QStringLiteral("This directory no longer exists. Please go back.")},
+        {QStringLiteral("找不到相片"), QStringLiteral("Image not found")},
+        {QStringLiteral("目前無法建立這張相片的檢視頁。"), QStringLiteral("A viewer page cannot be created for this image right now.")},
+        {QStringLiteral("這張相片目前不在可預覽清單內。"), QStringLiteral("This image is not currently in the preview list.")},
+        {QStringLiteral("找不到媒體"), QStringLiteral("Media not found")},
+        {QStringLiteral("目前無法建立這個檔案的播放頁面。"), QStringLiteral("A player page cannot be created for this file right now.")},
+        {QStringLiteral("這個檔案目前不在可播放清單內。"), QStringLiteral("This file is not currently in the playable list.")},
+        {QStringLiteral(" · 已載入字幕"), QStringLiteral(" · Subtitles loaded")},
+        {QStringLiteral("收到空白的 HTTP 請求。"), QStringLiteral("Received an empty HTTP request.")},
+        {QStringLiteral("HTTP 請求列格式不正確。"), QStringLiteral("The HTTP request line is invalid.")},
+        {QStringLiteral("上傳工作初始化失敗，請重新整理頁面後再試一次。"), QStringLiteral("Failed to initialize the upload. Refresh the page and try again.")},
+        {QStringLiteral("請求路徑超出分享範圍。"), QStringLiteral("The requested path is outside the shared area.")},
+        {QStringLiteral("這個分享項目不允許上傳。"), QStringLiteral("Uploads are not allowed for this share.")},
+        {QStringLiteral("上傳目錄無效。"), QStringLiteral("The upload directory is invalid.")},
+        {QStringLiteral("上傳檔名不可為空。"), QStringLiteral("The upload file name cannot be empty.")},
+        {QStringLiteral("上傳內容不可為空。"), QStringLiteral("The upload content cannot be empty.")},
+        {QStringLiteral("無法寫入上傳檔案。"), QStringLiteral("Unable to write the uploaded file.")},
+        {QStringLiteral("上傳工作尚未初始化。"), QStringLiteral("The upload has not been initialized.")},
+        {QStringLiteral("寫入上傳檔案時發生錯誤。"), QStringLiteral("An error occurred while writing the uploaded file.")},
+        {QStringLiteral("這個分享項目不允許建立資料夾。"), QStringLiteral("Creating folders is not allowed for this share.")},
+        {QStringLiteral("資料夾名稱無效。"), QStringLiteral("The folder name is invalid.")},
+        {QStringLiteral("目前目錄不存在或無效。"), QStringLiteral("The current directory does not exist or is invalid.")},
+        {QStringLiteral("建立資料夾的目標路徑無效。"), QStringLiteral("The target path for the new folder is invalid.")},
+        {QStringLiteral("同名資料夾或檔案已存在。"), QStringLiteral("A file or folder with the same name already exists.")},
+        {QStringLiteral("建立資料夾失敗。"), QStringLiteral("Failed to create the folder.")},
+        {QStringLiteral("這個分享項目不允許刪除。"), QStringLiteral("Deleting items is not allowed for this share.")},
+        {QStringLiteral("刪除目標不可為空。"), QStringLiteral("The delete target cannot be empty.")},
+        {QStringLiteral("刪除目標超出分享範圍。"), QStringLiteral("The delete target is outside the shared area.")},
+        {QStringLiteral("不可刪除分享根目錄。"), QStringLiteral("The root of a share cannot be deleted.")},
+        {QStringLiteral("要刪除的項目不存在。"), QStringLiteral("The item to delete does not exist.")},
+        {QStringLiteral("刪除失敗，檔案可能正在使用中。"), QStringLiteral("Delete failed. The file may be in use.")},
+        {QStringLiteral("上傳路徑不正確。"), QStringLiteral("The upload path is invalid.")},
+        {QStringLiteral("找不到分享項目。"), QStringLiteral("Share not found.")},
+        {QStringLiteral("上傳分塊參數不正確。"), QStringLiteral("The chunk upload parameters are invalid.")},
+        {QStringLiteral("無法建立暫存上傳檔案。"), QStringLiteral("Unable to create the temporary upload file.")},
+        {QStringLiteral("無法預先配置上傳暫存空間。"), QStringLiteral("Unable to allocate temporary upload space.")},
+        {QStringLiteral("上傳分塊順序錯誤，請重新上傳檔案。"), QStringLiteral("The upload chunks are out of order. Please upload the file again.")},
+        {QStringLiteral("無法寫入暫存上傳檔案。"), QStringLiteral("Unable to write the temporary upload file.")},
+        {QStringLiteral("上傳分塊內容不正確。"), QStringLiteral("The upload chunk content is invalid.")},
+        {QStringLiteral("無法定位上傳分塊位置。"), QStringLiteral("Unable to locate the upload chunk position.")},
+        {QStringLiteral("寫入上傳分塊失敗。"), QStringLiteral("Failed to write the upload chunk.")},
+        {QStringLiteral("上傳檔案大小不一致，請重新上傳。"), QStringLiteral("The uploaded file size does not match. Please upload it again.")},
+        {QStringLiteral("完成上傳時無法建立最終檔案。"), QStringLiteral("Unable to create the final file when completing the upload.")}
+    };
+
+    for (const auto &replacement : replacements) {
+        html.replace(replacement.first, replacement.second);
+    }
+    }
+
+    // Mark the document language and inject one compact visitor-side language
+    // switch. The switch preserves the current path/query, stores the choice
+    // in a browser cookie through the server, and works independently for each
+    // visitor.
+    if (english) {
+        html.replace(QStringLiteral("<!doctype html><html><head>"),
+                     QStringLiteral("<!doctype html><html lang='en'><head>"));
+    } else {
+        html.replace(QStringLiteral("<!doctype html><html><head>"),
+                     QStringLiteral("<!doctype html><html lang='zh-Hant'><head>"));
+    }
+
+    const QString zhClass = english ? QString() : QStringLiteral(" active");
+    const QString enClass = english ? QStringLiteral(" active") : QString();
+    const QString switchHtml = QStringLiteral(
+        "<style id='hfs-lang-style'>"
+        ".hfs-lang-switch{position:fixed;top:14px;right:14px;z-index:9999;display:flex;gap:3px;padding:4px;background:rgba(255,255,255,.92);border:1px solid rgba(132,146,171,.22);border-radius:999px;box-shadow:0 8px 24px rgba(30,42,68,.14);backdrop-filter:blur(10px);font-family:'Microsoft JhengHei UI','Segoe UI',sans-serif;}"
+        ".hfs-lang-btn{appearance:none;border:0;background:transparent;color:#66758f;min-width:46px;height:32px;padding:0 11px;border-radius:999px;font-size:13px;font-weight:800;cursor:pointer;transition:.16s ease;}"
+        ".hfs-lang-btn:hover{background:#f1efff;color:#6557e8;}"
+        ".hfs-lang-btn.active{background:linear-gradient(135deg,#7c4dff,#4f6df5);color:#fff;box-shadow:0 4px 12px rgba(99,84,235,.24);}"
+        "@media(max-width:640px){.hfs-lang-switch{top:auto;right:10px;bottom:10px}.hfs-lang-btn{height:30px;min-width:44px;padding:0 9px}}"
+        "</style>"
+        "<div class='hfs-lang-switch' role='group' aria-label='Language'>"
+        "<button type='button' class='hfs-lang-btn%1' data-hfs-lang='zh-TW'>繁中</button>"
+        "<button type='button' class='hfs-lang-btn%2' data-hfs-lang='en'>EN</button>"
+        "</div>"
+        "<script>(function(){"
+        "function setLang(lang){var u=new URL(window.location.href);u.searchParams.set('lang',lang);window.location.href=u.toString();}"
+        "var bs=document.querySelectorAll('[data-hfs-lang]');for(var i=0;i<bs.length;i++){bs[i].addEventListener('click',function(){setLang(this.getAttribute('data-hfs-lang'));});}"
+        "})();</script>")
+        .arg(zhClass, enClass);
+
+    const qsizetype bodyEnd = html.lastIndexOf(QStringLiteral("</body>"), -1, Qt::CaseInsensitive);
+    if (bodyEnd >= 0) {
+        html.insert(bodyEnd, switchHtml);
+    } else {
+        html += switchHtml;
+    }
+
+    return html;
 }
 
 QString HttpFileServer::routeForShare(const ShareItem &share) const

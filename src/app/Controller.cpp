@@ -228,13 +228,6 @@ Controller::Controller(QObject *parent)
                     emit settingsChanged();
                 }
                 emit tunnelStateChanged();
-
-                if (m_externalTunnelRequested
-                    && isServerRunning()
-                    && !path.isEmpty()
-                    && !m_tunnelManager.isRunning()) {
-                    m_tunnelManager.startQuickTunnel(m_settings.port);
-                }
             });
     connect(&m_externalSyncTimer, &QTimer::timeout, this, [this]() {
         if (!isServerRunning() || !hasExternalSharesEnabled()) {
@@ -752,7 +745,7 @@ void Controller::startTunnel()
     }
 
     m_externalTunnelRequested = true;
-    m_tunnelManager.startQuickTunnel(m_settings.port);
+    m_tunnelManager.ensureLatestAndStart(m_settings.port);
 }
 
 void Controller::stopTunnel()
@@ -965,7 +958,7 @@ void Controller::reloadServerConfiguration()
                 [this, siteName, logoPath, downloadSettings, shares]() {
                     m_httpServer->setSiteName(siteName);
                     m_httpServer->setLogoPath(logoPath);
-                    m_httpServer->setDownloadSettings(downloadSettings);
+                            m_httpServer->setDownloadSettings(downloadSettings);
                     m_httpServer->setShares(shares);
                 },
                 Qt::BlockingQueuedConnection);
@@ -1036,7 +1029,7 @@ void Controller::ensureExternalTunnel()
         return;
     }
 
-    m_tunnelManager.downloadCloudflared();
+    m_tunnelManager.ensureLatestAndStart(m_settings.port);
 }
 
 void Controller::updateExternalSyncTimer()

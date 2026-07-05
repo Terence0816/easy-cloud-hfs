@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "app/Models.h"
 
@@ -23,6 +23,7 @@ public:
 
     void setSiteName(const QString &siteName);
     void setLogoPath(const QString &logoPath);
+    void setWebLanguage(const QString &language);
     void setDownloadSettings(const DownloadSettings &settings);
     void setShares(const QList<ShareItem> &shares);
 
@@ -160,6 +161,8 @@ private:
     [[nodiscard]] QByteArray renderMessagePage(const QString &title, const QString &body) const;
     [[nodiscard]] QByteArray serveLogo() const;
     [[nodiscard]] QString escapeHtml(const QString &value) const;
+    [[nodiscard]] QString webTx(const QString &zh, const QString &en) const;
+    [[nodiscard]] QString localizeWebHtml(QString html) const;
     [[nodiscard]] QString routeForShare(const ShareItem &share) const;
     [[nodiscard]] QString mediaRelayUrl(const ShareItem &share,
                                         const QString &relativePath = QString()) const;
@@ -183,6 +186,7 @@ private:
     quint16 m_port = 0;
     QString m_siteName = "Easy Cloud HFS";
     QString m_logoPath;
+    QString m_webLanguage = QStringLiteral("\u7e41\u9ad4\u4e2d\u6587");
     DownloadSettings m_downloadSettings;
     QList<ShareItem> m_shares;
     QHash<QTcpSocket *, ConnectionState> m_connections;

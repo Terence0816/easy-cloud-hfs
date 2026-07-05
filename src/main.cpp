@@ -258,8 +258,9 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
     app.setApplicationName("Easy Cloud HFS");
+    app.setApplicationVersion(QStringLiteral("1.2.0.0"));
     app.setOrganizationName("EasyCloudHFS");
-    app.setWindowIcon(QIcon(":/logo.png"));
+    app.setWindowIcon(QIcon(":/desktop_logo.png"));
     app.setFont(QFont("Microsoft JhengHei UI", 10));
 
     registerPotPlayerProtocol();

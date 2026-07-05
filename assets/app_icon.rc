@@ -4,8 +4,8 @@
 IDI_APP_ICON ICON "logo.ico"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     1,0,0,0
-PRODUCTVERSION  1,0,0,0
+FILEVERSION     1,2,0,0
+PRODUCTVERSION  1,2,0,0
 FILEFLAGSMASK   0x3fL
 #ifdef _DEBUG
 FILEFLAGS       0x1L
@@ -22,23 +22,23 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Terence0816"
             VALUE "FileDescription",  "Easy Cloud HFS - 輕量桌面檔案分享工具"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      "1.2.0.0"
             VALUE "InternalName",     "EasyCloudHFS.exe"
             VALUE "LegalCopyright",   "Copyright (C) 2026 Terence0816. All rights reserved."
             VALUE "OriginalFilename", "EasyCloudHFS.exe"
             VALUE "ProductName",      "Easy Cloud HFS"
-            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "ProductVersion",   "1.2.0.0"
         END
         BLOCK "040904b0"
         BEGIN
             VALUE "CompanyName",      "Terence0816"
             VALUE "FileDescription",  "Easy Cloud HFS - Lightweight Desktop File Sharing Tool"
-            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "FileVersion",      "1.2.0.0"
             VALUE "InternalName",     "EasyCloudHFS.exe"
             VALUE "LegalCopyright",   "Copyright (C) 2026 Terence0816. All rights reserved."
             VALUE "OriginalFilename", "EasyCloudHFS.exe"
             VALUE "ProductName",      "Easy Cloud HFS"
-            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "ProductVersion",   "1.2.0.0"
         END
     END
     BLOCK "VarFileInfo"

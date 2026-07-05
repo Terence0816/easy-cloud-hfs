@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QMainWindow>
 
@@ -73,6 +73,9 @@ private:
     QWidget *m_central = nullptr;
     QStackedWidget *m_pages = nullptr;
     QLabel *m_pageTitle = nullptr;
+    QLabel *m_pageSubtitle = nullptr;
+    QLabel *m_brandSubtitle = nullptr;
+    QLabel *m_statusDot = nullptr;
     QPushButton *m_startStopButton = nullptr;
 
     QLabel *m_statusText = nullptr;
