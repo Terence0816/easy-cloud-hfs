@@ -18,6 +18,28 @@ This project is designed as a portable Windows desktop tool with a native C++ / 
 
 > This project is source-available for personal, educational, research, and non-commercial use only.
 
+## Latest Update — v1.2.0.0
+
+Easy Cloud HFS Windows v1.2.0.0 focuses on improved Windows compatibility, a refreshed desktop interface, multilingual web access, and a more convenient browser-based upload experience.
+
+### What's New
+
+* Fixed compatibility issues affecting some older versions of Windows 10.
+* Added Windows 7 support.
+* Refreshed the desktop application interface with an improved visual layout and a less monotonous color design.
+* Added a language switcher to the web interface, allowing users browsing the shared site to manually switch the browser interface between:
+  * Traditional Chinese
+  * English
+* Added drag-and-drop upload support to the web interface.
+* When the current folder has write/upload permission, users can drag files or entire folders directly into the browser page to upload them.
+* Supports uploading multiple files and multiple folders in a single drag-and-drop operation.
+
+### Compatibility Notes
+
+* Windows 7 is now supported for the main application features.
+* Proxy / external access related functionality on Windows 7 is currently provided on a best-effort basis and may not remain supported in future versions.
+* For the best compatibility and security, a currently supported version of Windows is still recommended.
+
 ## Features
 
 * Windows HTTP file sharing server
@@ -36,6 +58,9 @@ This project is designed as a portable Windows desktop tool with a native C++ / 
 * HTTP Range request support for resume and media seeking
 * Large-file upload support
 * Web-based file manager
+* Web interface language switching between Traditional Chinese and English
+* Browser drag-and-drop upload for files and folders when write/upload permission is enabled
+* Multiple files and folders can be uploaded in a single drag-and-drop operation
 * Online video and audio playback
 * Subtitle auto-load support
 * PotPlayer launch support for Windows clients
@@ -44,8 +69,9 @@ This project is designed as a portable Windows desktop tool with a native C++ / 
 * Server activity log
 * Minimize to system tray
 * Optional launch on Windows startup
-* Traditional Chinese interface
-* Designed for Windows 10 / 11
+* Traditional Chinese desktop interface
+* Windows 10 / 11 support
+* Windows 7 compatibility support for main application features
 
 ## Main Use Cases
 
@@ -120,6 +146,10 @@ Available settings include:
 
 Clients can access shared files through a browser.
 
+The web interface supports manual language switching. Users browsing the shared site can directly switch the browser interface between **Traditional Chinese** and **English**.
+
+When the current folder has write/upload permission, users can also drag files or folders directly into the browser page to upload them. Multiple files and multiple folders can be dragged and uploaded together in a single operation.
+
 ### Multi-file Selection
 
 ![Web Multi-file Select](assets/screenshots/web_multi_select.png)
@@ -132,7 +162,7 @@ Clients can access shared files through a browser.
 
 ![Web MP4 Player](assets/screenshots/web_player_mp4.png)
 
-The web interface is designed for simple access, file browsing, file download, media preview, and browser-based upload when permissions are enabled.
+The web interface is designed for simple access, file browsing, file download, media preview, language switching, and browser-based upload when permissions are enabled.
 
 ## Cloudflare Tunnel
 
@@ -211,9 +241,13 @@ EasyCloudHFS.exe.sha256.txt
 
 ## SHA-256
 
+For each release, please verify the executable using the accompanying:
+
 ```text
-34b1cf7d536e9fdf07e6b45749b7ed72b8771068d6996811941585edbd4e5f34  EasyCloudHFS.exe
+EasyCloudHFS.exe.sha256.txt
 ```
+
+This avoids relying on an outdated hash after a new version is published.
 
 ## Notes
 
@@ -227,7 +261,7 @@ EasyCloudHFS.exe.sha256.txt
 
 ## Search Keywords
 
-Windows file sharing server, Windows HFS, HTTP file server, Windows cloud file server, LAN file sharing, Cloudflare Tunnel Windows, trycloudflare file sharing, Windows web file manager, Windows file upload server, Windows media streaming server, PotPlayer streaming, Windows QR file sharing, Windows virtual folder sharing, portable file server, single exe file server
+Windows file sharing server, Windows HFS, HTTP file server, Windows cloud file server, LAN file sharing, Cloudflare Tunnel Windows, trycloudflare file sharing, Windows web file manager, Windows file upload server, drag and drop upload, folder upload, multilingual web interface, Traditional Chinese English web interface, Windows media streaming server, PotPlayer streaming, Windows QR file sharing, Windows virtual folder sharing, portable file server, single exe file server
 
 ## License
 
@@ -268,6 +302,28 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 
 > 本專案原始碼僅供個人、學習、研究與非商業用途使用。
 
+## v1.2.0.0 主要更新
+
+Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程式介面、網頁端語言切換，以及瀏覽器拖曳上傳功能進行更新與改善。
+
+### 主要更新與修復
+
+* 修復部分舊版 Windows 10 無法正常使用的相容性問題。
+* 新增 Windows 7 系統支援。
+* 更新桌面程式介面與視覺配置，改善舊版大面積單一藍色色調較為單調的問題，使整體畫面更加清楚、美觀。
+* 網頁端新增語言切換功能，瀏覽分享網站的使用者可直接在瀏覽器介面中手動切換：
+  * 繁體中文
+  * English
+* 網頁端新增拖曳上傳功能。
+* 當目前資料夾具備寫入／上傳權限時，可直接將檔案或整個資料夾拖曳到瀏覽器頁面中進行上傳。
+* 支援一次同時拖曳多個檔案與多個資料夾進行上傳。
+
+### 相容性說明
+
+* Windows 7 現已可使用主要程式功能。
+* Windows 7 下的代理／外部連線相關功能目前屬相容性支援，不保證未來版本仍能持續支援。
+* 為獲得較佳的相容性與安全性，仍建議優先使用目前受支援的 Windows 系統版本。
+
 ## 功能特色
 
 * Windows HTTP 檔案分享伺服器
@@ -286,6 +342,9 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 * 支援 HTTP Range Request，方便續傳與影音拖曳播放
 * 支援大檔案上傳
 * 內建網頁端檔案管理介面
+* 網頁端可由瀏覽者手動切換繁體中文與 English
+* 資料夾具備寫入／上傳權限時，支援從瀏覽器直接拖曳檔案或資料夾上傳
+* 支援一次同時拖曳多個檔案與多個資料夾上傳
 * 支援線上影片與音樂播放
 * 支援字幕自動載入
 * 支援 Windows 端 PotPlayer 喚起播放
@@ -294,8 +353,9 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 * 伺服器運作記錄
 * 可縮小到系統列背景執行
 * 可設定開機自動啟動
-* 繁體中文介面
-* 設計給 Windows 10 / 11 使用
+* 繁體中文桌面介面
+* 支援 Windows 10 / 11
+* Windows 7 可使用主要程式功能
 
 ## 適用情境
 
@@ -370,6 +430,10 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 
 使用者可透過瀏覽器存取分享檔案。
 
+網頁端支援手動語言切換，瀏覽分享網站的使用者可直接在瀏覽器介面中切換 **繁體中文** 與 **English**。
+
+當目前資料夾具備寫入／上傳權限時，也可以直接將檔案或資料夾拖曳到瀏覽器頁面中進行上傳，並支援一次同時拖曳多個檔案與多個資料夾。
+
 ### 多選檔案
 
 ![網頁多選檔案](assets/screenshots/web_multi_select.png)
@@ -382,7 +446,7 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 
 ![網頁 MP4 播放器](assets/screenshots/web_player_mp4.png)
 
-網頁端介面設計用於快速存取、瀏覽檔案、下載檔案、預覽媒體，以及在權限允許時透過瀏覽器上傳檔案。
+網頁端介面設計用於快速存取、瀏覽檔案、下載檔案、預覽媒體、切換顯示語言，以及在權限允許時透過瀏覽器上傳檔案或資料夾。
 
 ## Cloudflare Tunnel 外部連結
 
@@ -461,9 +525,13 @@ EasyCloudHFS.exe.sha256.txt
 
 ## SHA-256
 
+每個版本請使用隨 Release 一起提供的下列檔案驗證主程式：
+
 ```text
-34b1cf7d536e9fdf07e6b45749b7ed72b8771068d6996811941585edbd4e5f34  EasyCloudHFS.exe
+EasyCloudHFS.exe.sha256.txt
 ```
+
+這樣可以避免新版發佈後，README 仍保留舊版本的雜湊值。
 
 ## 注意事項
 
@@ -477,7 +545,7 @@ EasyCloudHFS.exe.sha256.txt
 
 ## 搜尋關鍵字
 
-Windows 檔案分享伺服器、Windows HFS、HTTP 檔案伺服器、Windows 雲端檔案伺服器、區域網路檔案分享、Cloudflare Tunnel Windows、trycloudflare 檔案分享、Windows 網頁檔案管理、Windows 檔案上傳伺服器、Windows 影音串流伺服器、PotPlayer 串流、Windows QR Code 分享、Windows 虛擬資料夾分享、可攜式檔案伺服器、單一 EXE 檔案伺服器
+Windows 檔案分享伺服器、Windows HFS、HTTP 檔案伺服器、Windows 雲端檔案伺服器、區域網路檔案分享、Cloudflare Tunnel Windows、trycloudflare 檔案分享、Windows 網頁檔案管理、Windows 檔案上傳伺服器、拖曳上傳、資料夾上傳、多語言網頁介面、繁體中文英文切換、Windows 影音串流伺服器、PotPlayer 串流、Windows QR Code 分享、Windows 虛擬資料夾分享、可攜式檔案伺服器、單一 EXE 檔案伺服器
 
 ## 授權
 
