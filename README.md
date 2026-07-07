@@ -18,27 +18,19 @@ This project is designed as a portable Windows desktop tool with a native C++ / 
 
 > This project is source-available for personal, educational, research, and non-commercial use only.
 
-## Latest Update — v1.2.0.0
+## Latest Update — v1.2.2.0
 
-Easy Cloud HFS Windows v1.2.0.0 focuses on improved Windows compatibility, a refreshed desktop interface, multilingual web access, and a more convenient browser-based upload experience.
+Easy Cloud HFS Windows v1.2.2.0 adds optional browser-based chat for shared pages, improves share management usability, optimizes text scaling for high-resolution displays, and fixes duplicate application launches.
 
 ### What's New
 
-* Fixed compatibility issues affecting some older versions of Windows 10.
-* Added Windows 7 support.
-* Refreshed the desktop application interface with an improved visual layout and a less monotonous color design.
-* Added a language switcher to the web interface, allowing users browsing the shared site to manually switch the browser interface between:
-  * Traditional Chinese
-  * English
-* Added drag-and-drop upload support to the web interface.
-* When the current folder has write/upload permission, users can drag files or entire folders directly into the browser page to upload them.
-* Supports uploading multiple files and multiple folders in a single drag-and-drop operation.
-
-### Compatibility Notes
-
-* Windows 7 is now supported for the main application features.
-* Proxy / external access related functionality on Windows 7 is currently provided on a best-effort basis and may not remain supported in future versions.
-* For the best compatibility and security, a currently supported version of Windows is still recommended.
+* Added an optional **browser-based chat feature** to Share Management.
+* Chat can be enabled for shared pages, allowing users to communicate through a lightweight chat interface while accessing shared content.
+* Added a **chat usage tip** to the share settings page for clearer guidance.
+* Improved the **drag-and-drop area** with a more visible drop zone and clearer instructional text.
+* Added **resolution-aware text scaling** to improve readability on high-resolution displays and prevent interface text from appearing too small on 2K / 4K screens.
+* Improved selected-state indicators with a more intuitive **purple background and white checkmark** design.
+* Fixed an issue where accidentally launching the application multiple times could create duplicate running instances.
 
 ## Features
 
@@ -51,6 +43,8 @@ Easy Cloud HFS Windows v1.2.0.0 focuses on improved Windows compatibility, a ref
 * Automatically generates a temporary `trycloudflare.com` public URL
 * Drag-and-drop file and folder sharing
 * Share files, folders, and virtual folders
+* Optional browser-based chat for shared pages
+* Share-level chat enable / disable control
 * Upload permission control
 * Delete permission control
 * Create-folder permission control
@@ -61,6 +55,7 @@ Easy Cloud HFS Windows v1.2.0.0 focuses on improved Windows compatibility, a ref
 * Web interface language switching between Traditional Chinese and English
 * Browser drag-and-drop upload for files and folders when write/upload permission is enabled
 * Multiple files and folders can be uploaded in a single drag-and-drop operation
+* Resolution-aware text scaling for high-DPI and 2K / 4K displays
 * Online video and audio playback
 * Subtitle auto-load support
 * PotPlayer launch support for Windows clients
@@ -78,6 +73,7 @@ Easy Cloud HFS Windows v1.2.0.0 focuses on improved Windows compatibility, a ref
 * Share files from a Windows PC to devices on the same LAN
 * Use a PC as a lightweight temporary file server
 * Share files with friends or customers through a browser
+* Use the optional browser chat for lightweight communication while sharing files
 * Transfer files without installing a client program on the receiving device
 * Create a temporary external public link with Cloudflare Tunnel
 * Stream videos or music directly from the Windows PC
@@ -111,7 +107,7 @@ It can display:
 
 ### Share Management
 
-The share page allows you to add files, add folders, create virtual folders, and manage existing shared items.
+The share page allows you to add files, add folders, create virtual folders, manage existing shared items, and optionally enable browser chat for shared pages.
 
 ![Share Management](assets/screenshots/share-en.png)
 
@@ -120,6 +116,7 @@ Each shared item can be controlled individually.
 Supported permissions include:
 
 * Enable / disable share
+* Enable / disable browser chat
 * Allow upload
 * Allow delete
 * Allow create folder
@@ -150,6 +147,12 @@ The web interface supports manual language switching. Users browsing the shared 
 
 When the current folder has write/upload permission, users can also drag files or folders directly into the browser page to upload them. Multiple files and multiple folders can be dragged and uploaded together in a single operation.
 
+### Browser Chat
+
+Shared pages can optionally provide a lightweight browser-based chat room for simple communication while users browse or exchange files. Visitors can enter a display name and leave messages without a separate client application.
+
+![Browser Chat](assets/screenshots/web_chat.png)
+
 ### Multi-file Selection
 
 ![Web Multi-file Select](assets/screenshots/web_multi_select.png)
@@ -162,7 +165,7 @@ When the current folder has write/upload permission, users can also drag files o
 
 ![Web MP4 Player](assets/screenshots/web_player_mp4.png)
 
-The web interface is designed for simple access, file browsing, file download, media preview, language switching, and browser-based upload when permissions are enabled.
+The web interface is designed for simple access, file browsing, file download, media preview, language switching, optional browser chat, and browser-based upload when permissions are enabled.
 
 ## Cloudflare Tunnel
 
@@ -261,7 +264,7 @@ This avoids relying on an outdated hash after a new version is published.
 
 ## Search Keywords
 
-Windows file sharing server, Windows HFS, HTTP file server, Windows cloud file server, LAN file sharing, Cloudflare Tunnel Windows, trycloudflare file sharing, Windows web file manager, Windows file upload server, drag and drop upload, folder upload, multilingual web interface, Traditional Chinese English web interface, Windows media streaming server, PotPlayer streaming, Windows QR file sharing, Windows virtual folder sharing, portable file server, single exe file server
+Windows file sharing server, Windows HFS, HTTP file server, Windows cloud file server, LAN file sharing, Cloudflare Tunnel Windows, trycloudflare file sharing, Windows web file manager, Windows file upload server, drag and drop upload, folder upload, browser chat, file sharing chat, high DPI scaling, multilingual web interface, Traditional Chinese English web interface, Windows media streaming server, PotPlayer streaming, Windows QR file sharing, Windows virtual folder sharing, portable file server, single exe file server
 
 ## License
 
@@ -302,27 +305,19 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 
 > 本專案原始碼僅供個人、學習、研究與非商業用途使用。
 
-## v1.2.0.0 主要更新
+## v1.2.2.0 主要更新
 
-Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程式介面、網頁端語言切換，以及瀏覽器拖曳上傳功能進行更新與改善。
+Easy Cloud HFS Windows v1.2.2.0 新增可選擇啟用的網頁聊天室功能，並進一步改善分享管理操作介面、高解析度螢幕顯示效果與整體使用體驗，同時修復程式重複啟動問題。
 
 ### 主要更新與修復
 
-* 修復部分舊版 Windows 10 無法正常使用的相容性問題。
-* 新增 Windows 7 系統支援。
-* 更新桌面程式介面與視覺配置，改善舊版大面積單一藍色色調較為單調的問題，使整體畫面更加清楚、美觀。
-* 網頁端新增語言切換功能，瀏覽分享網站的使用者可直接在瀏覽器介面中手動切換：
-  * 繁體中文
-  * English
-* 網頁端新增拖曳上傳功能。
-* 當目前資料夾具備寫入／上傳權限時，可直接將檔案或整個資料夾拖曳到瀏覽器頁面中進行上傳。
-* 支援一次同時拖曳多個檔案與多個資料夾進行上傳。
-
-### 相容性說明
-
-* Windows 7 現已可使用主要程式功能。
-* Windows 7 下的代理／外部連線相關功能目前屬相容性支援，不保證未來版本仍能持續支援。
-* 為獲得較佳的相容性與安全性，仍建議優先使用目前受支援的 Windows 系統版本。
+* **分享管理新增聊天室功能**，可依需求選擇是否啟用。
+* 啟用聊天室後，使用者可在瀏覽分享頁面時透過簡易網頁聊天室進行文字溝通，方便分享檔案時同步交流。
+* 分享設定頁面新增 **聊天室功能小提示**，讓相關設定與用途更加清楚。
+* 改善分享管理中的 **拖曳區塊**，強化拖放區域的視覺辨識度，並調整文字說明，使操作方式更加直覺。
+* 新增 **依螢幕解析度自動優化文字大小** 的顯示機制，改善 2K／4K 等高解析度環境下介面文字過小的問題。
+* 改善項目 **選取狀態顯示方式**，調整為紫色背景搭配白色勾選標記，使目前選取狀態更加清楚直覺。
+* 修復不小心重複啟動程式時，可能產生多個程式執行個體的問題。
 
 ## 功能特色
 
@@ -335,6 +330,8 @@ Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程
 * 自動產生臨時 `trycloudflare.com` 公開網址
 * 支援拖曳檔案或資料夾快速建立分享
 * 支援分享檔案、資料夾與虛擬資料夾
+* 分享頁面可選擇啟用網頁聊天室
+* 可個別控制是否啟用聊天室
 * 可控制是否允許上傳
 * 可控制是否允許刪除
 * 可控制是否允許建立資料夾
@@ -345,6 +342,7 @@ Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程
 * 網頁端可由瀏覽者手動切換繁體中文與 English
 * 資料夾具備寫入／上傳權限時，支援從瀏覽器直接拖曳檔案或資料夾上傳
 * 支援一次同時拖曳多個檔案與多個資料夾上傳
+* 依螢幕解析度自動優化文字大小，改善 2K／4K 高解析度顯示
 * 支援線上影片與音樂播放
 * 支援字幕自動載入
 * 支援 Windows 端 PotPlayer 喚起播放
@@ -362,6 +360,7 @@ Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程
 * 從 Windows 電腦分享檔案給同一個區域網路內的其他裝置
 * 將電腦當成臨時小型檔案伺服器
 * 透過瀏覽器分享檔案給朋友或客戶
+* 分享檔案時可透過選用的網頁聊天室進行簡單溝通
 * 接收端不需要安裝任何客戶端程式
 * 透過 Cloudflare Tunnel 建立臨時外部公開連結
 * 直接從 Windows 電腦串流影片或音樂
@@ -395,7 +394,7 @@ Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程
 
 ### 分享管理
 
-分享頁面可新增檔案、新增資料夾、建立虛擬資料夾，並管理目前分享項目。
+分享頁面可新增檔案、新增資料夾、建立虛擬資料夾、管理目前分享項目，並可依需求啟用網頁聊天室。
 
 ![分享管理](assets/screenshots/share-zh-tw.png)
 
@@ -404,6 +403,7 @@ Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程
 支援權限：
 
 * 啟用 / 停用分享
+* 啟用 / 停用聊天室
 * 允許上傳
 * 允許刪除
 * 允許建立資料夾
@@ -434,6 +434,12 @@ Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程
 
 當目前資料夾具備寫入／上傳權限時，也可以直接將檔案或資料夾拖曳到瀏覽器頁面中進行上傳，並支援一次同時拖曳多個檔案與多個資料夾。
 
+### 網頁聊天室
+
+分享頁面可依需求選擇啟用簡易網頁聊天室，讓使用者在瀏覽或交換檔案時直接進行文字溝通。訪客可輸入顯示名稱後留言，不需要另外安裝客戶端程式。
+
+![網頁聊天室](assets/screenshots/web_chat.png)
+
 ### 多選檔案
 
 ![網頁多選檔案](assets/screenshots/web_multi_select.png)
@@ -446,7 +452,7 @@ Easy Cloud HFS Windows v1.2.0.0 主要針對 Windows 系統相容性、桌面程
 
 ![網頁 MP4 播放器](assets/screenshots/web_player_mp4.png)
 
-網頁端介面設計用於快速存取、瀏覽檔案、下載檔案、預覽媒體、切換顯示語言，以及在權限允許時透過瀏覽器上傳檔案或資料夾。
+網頁端介面設計用於快速存取、瀏覽檔案、下載檔案、預覽媒體、切換顯示語言、選用網頁聊天室，以及在權限允許時透過瀏覽器上傳檔案或資料夾。
 
 ## Cloudflare Tunnel 外部連結
 
@@ -545,7 +551,7 @@ EasyCloudHFS.exe.sha256.txt
 
 ## 搜尋關鍵字
 
-Windows 檔案分享伺服器、Windows HFS、HTTP 檔案伺服器、Windows 雲端檔案伺服器、區域網路檔案分享、Cloudflare Tunnel Windows、trycloudflare 檔案分享、Windows 網頁檔案管理、Windows 檔案上傳伺服器、拖曳上傳、資料夾上傳、多語言網頁介面、繁體中文英文切換、Windows 影音串流伺服器、PotPlayer 串流、Windows QR Code 分享、Windows 虛擬資料夾分享、可攜式檔案伺服器、單一 EXE 檔案伺服器
+Windows 檔案分享伺服器、Windows HFS、HTTP 檔案伺服器、Windows 雲端檔案伺服器、區域網路檔案分享、Cloudflare Tunnel Windows、trycloudflare 檔案分享、Windows 網頁檔案管理、Windows 檔案上傳伺服器、拖曳上傳、資料夾上傳、網頁聊天室、檔案分享聊天、高解析度介面、多語言網頁介面、繁體中文英文切換、Windows 影音串流伺服器、PotPlayer 串流、Windows QR Code 分享、Windows 虛擬資料夾分享、可攜式檔案伺服器、單一 EXE 檔案伺服器
 
 ## 授權
 
