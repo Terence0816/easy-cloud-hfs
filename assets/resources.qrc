@@ -2,5 +2,8 @@
   <qresource prefix="/">
     <file>logo.png</file>
     <file>desktop_logo.png</file>
+    <file>check_white.png</file>
+    <file>checkbox_checked.png</file>
+    <file>tip_info.png</file>
   </qresource>
 </RCC>

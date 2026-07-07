@@ -1,4 +1,4 @@
-#include "app/Models.h"
+﻿#include "app/Models.h"
 
 #include <QJsonValue>
 #include <QRegularExpression>
@@ -100,6 +100,7 @@ QJsonObject toJson(const AppSettings &settings)
         {QStringLiteral("updateFrequency"), settings.updateFrequency},
         {QStringLiteral("logoPath"), settings.logoPath},
         {QStringLiteral("externalLinkEnabled"), settings.externalLinkEnabled},
+        {QStringLiteral("chatEnabled"), settings.chatEnabled},
         {QStringLiteral("instanceId"), settings.instanceId},
         {QStringLiteral("windowWidth"), settings.windowWidth},
         {QStringLiteral("windowHeight"), settings.windowHeight},
@@ -187,6 +188,7 @@ AppSettings appSettingsFromJson(const QJsonObject &object)
     settings.updateFrequency = object.value(QStringLiteral("updateFrequency")).toString(settings.updateFrequency);
     settings.logoPath = object.value(QStringLiteral("logoPath")).toString();
     settings.externalLinkEnabled = object.value(QStringLiteral("externalLinkEnabled")).toBool(false);
+    settings.chatEnabled = object.value(QStringLiteral("chatEnabled")).toBool(true);
     settings.instanceId = object.value(QStringLiteral("instanceId")).toString();
     settings.windowWidth = qMax(780, object.value(QStringLiteral("windowWidth")).toInt(settings.windowWidth));
     settings.windowHeight = qMax(520, object.value(QStringLiteral("windowHeight")).toInt(settings.windowHeight));

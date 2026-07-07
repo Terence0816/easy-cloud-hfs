@@ -87,6 +87,7 @@ private:
     // Sidebar buttons
     QPushButton *m_btnDashboard = nullptr;
     QPushButton *m_btnShares = nullptr;
+    QPushButton *m_btnChat = nullptr;
     QPushButton *m_btnSettings = nullptr;
     QPushButton *m_btnAbout = nullptr;
 
@@ -106,10 +107,14 @@ private:
     QWidget *m_sharePage = nullptr;
     QVBoxLayout *m_shareListLayout = nullptr;
     QCheckBox *m_shareExternalLinkCheck = nullptr;
+    QCheckBox *m_chatEnabledCheck = nullptr;
     QLabel *m_shareExternalInfoLabel = nullptr;
     QPushButton *m_btnSaveShares = nullptr;
     QPushButton *m_btnAddShare = nullptr;
+    QLabel *m_dropIcon = nullptr;
     QLabel *m_dropTitle = nullptr;
+    QLabel *m_dropSubtitle = nullptr;
+    QLabel *m_shareTipLabel = nullptr;
 
     // Settings page controls
     QLabel *m_lblSystemTitle = nullptr;

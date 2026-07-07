@@ -6,10 +6,13 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFont>
+#include <QGuiApplication>
 #include <QIcon>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
 #include <QProcess>
+#include <QMessageBox>
 #include <QStandardPaths>
 #include <QStringList>
 #include <QUrl>
@@ -246,6 +249,17 @@ bool handlePotPlayerProtocolLaunch(const QStringList &arguments)
 
 int main(int argc, char *argv[])
 {
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    // Make Qt 5 follow Windows DPI scaling. Qt 6 enables this behavior by default.
+    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+#endif
+#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
+    // Preserve fractional Windows scale factors such as 125% and 150%.
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
+        Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+#endif
+
     QStringList rawArguments;
     rawArguments.reserve(argc);
     for (int index = 0; index < argc; ++index) {
@@ -262,6 +276,15 @@ int main(int argc, char *argv[])
     app.setOrganizationName("EasyCloudHFS");
     app.setWindowIcon(QIcon(":/desktop_logo.png"));
     app.setFont(QFont("Microsoft JhengHei UI", 10));
+
+    const QString lockPath = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+                                 .filePath(QStringLiteral("EasyCloudHFS_single_instance.lock"));
+    QLockFile singleInstanceLock(lockPath);
+    singleInstanceLock.setStaleLockTime(0);
+    if (!singleInstanceLock.tryLock(100)) {
+        QMessageBox::information(nullptr, QStringLiteral("Easy Cloud HFS"), QStringLiteral("程式已經在執行中，無法重複啟動。"));
+        return 0;
+    }
 
     registerPotPlayerProtocol();
 

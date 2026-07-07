@@ -307,6 +307,11 @@ void HttpFileServer::setDownloadSettings(const DownloadSettings &settings)
     m_downloadSettings = settings;
 }
 
+void HttpFileServer::setChatEnabled(bool enabled)
+{
+    m_chatEnabled = enabled;
+}
+
 void HttpFileServer::setShares(const QList<ShareItem> &shares)
 {
     m_shares = shares;
@@ -578,6 +583,8 @@ void HttpFileServer::processRequest(QTcpSocket *socket, ConnectionState &state)
 
     if (!m_downloadSettings.password.isEmpty()
         && path != QStringLiteral("/__auth")
+        && path != QStringLiteral("/chat")
+        && !path.startsWith(QStringLiteral("/__chat/"))
         && !(potplayerRequest && query.queryItemValue(QStringLiteral("k"), QUrl::FullyDecoded) == authToken())
         && !isAuthenticated(state.headers)) {
         sendUnauthorized(socket);
@@ -601,6 +608,32 @@ void HttpFileServer::processRequest(QTcpSocket *socket, ConnectionState &state)
         }
 
         sendUnauthorized(socket, true);
+        return;
+    }
+
+    if (path == QStringLiteral("/chat")) {
+        if (!m_chatEnabled) { sendNotFound(socket); return; }
+        sendResponse(socket, 200, statusTextFor(200), renderChatPage(), QByteArrayLiteral("text/html; charset=utf-8"));
+        return;
+    }
+    if (path == QStringLiteral("/__chat/messages") && state.method == QStringLiteral("GET")) {
+        if (!m_chatEnabled) { sendNotFound(socket); return; }
+        sendJson(socket, QJsonDocument(m_chatMessages).toJson(QJsonDocument::Compact));
+        return;
+    }
+    if (path == QStringLiteral("/__chat/send") && state.method == QStringLiteral("POST")) {
+        if (!m_chatEnabled) { sendNotFound(socket); return; }
+        const QUrlQuery form(QString::fromUtf8(body));
+        QString name = form.queryItemValue(QStringLiteral("name"), QUrl::FullyDecoded).trimmed();
+        QString message = form.queryItemValue(QStringLiteral("message"), QUrl::FullyDecoded).trimmed();
+        if (name.isEmpty()) name = QStringLiteral("訪客");
+        if (name.size() > 30) name = name.left(30);
+        if (message.isEmpty()) { sendBadRequest(socket, QStringLiteral("留言不可空白")); return; }
+        if (message.size() > 1000) message = message.left(1000);
+        QJsonObject item{{QStringLiteral("name"), name}, {QStringLiteral("message"), message}, {QStringLiteral("ip"), detectClientAddress(socket)}, {QStringLiteral("time"), QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss"))}};
+        m_chatMessages.append(item);
+        while (m_chatMessages.size() > 200) m_chatMessages.removeAt(0);
+        sendJson(socket, QByteArrayLiteral("{\"ok\":true}"));
         return;
     }
 
@@ -1642,6 +1675,10 @@ QByteArray HttpFileServer::renderHomePage() const
                          escapeHtml(infoText));
     }
 
+    if (m_chatEnabled) {
+        rows.prepend(QStringLiteral("<a class='row chat-row' href='/chat'><div class='icon chat-icon'>💬</div><div class='row-main'><div class='row-name'>聊天室</div><div class='row-note'>與訪客一起交流</div></div><div class='row-info'>進入聊天室 ›</div></a>"));
+    }
+
     if (rows.isEmpty()) {
         rows = QStringLiteral("<div class='empty'>目前尚無可下載的分享項目。</div>");
     }
@@ -1808,6 +1845,16 @@ QByteArray HttpFileServer::renderHomePage() const
         "</style></head>"
         "<body><div class='wrap'><div class='hero'><img src='/__logo'><div><h1 class='title'>%1</h1><div class='sub'>%2</div></div></div><div class='list'>%3</div>%4</div></body></html>")
                              .arg(escapeHtml(m_siteName), hint, rows, galleryBlock);
+    return localizeWebHtml(html).toUtf8();
+}
+
+QByteArray HttpFileServer::renderChatPage() const
+{
+    const QString html = QStringLiteral(R"HTML(<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>%1 聊天室</title><style>
+body{margin:0;background:#eef4ff;color:#17304f;font-family:'Microsoft JhengHei UI','Segoe UI',sans-serif}.wrap{max-width:980px;margin:auto;padding:24px}.hero,.panel{background:white;border-radius:22px;box-shadow:0 10px 28px rgba(37,75,140,.1)}.hero{display:flex;align-items:center;gap:14px;padding:20px 24px}.hero img{width:58px;height:58px;border-radius:16px}.hero h1{font-size:28px;margin:0}.sub{color:#7890af;margin-top:4px}.panel{margin-top:18px;padding:18px}.messages{height:52vh;min-height:340px;overflow:auto;border:1px solid #dce7f7;border-radius:16px;background:#f9fbff}.msg{padding:12px 16px;border-bottom:1px solid #e8eef8}.top{display:flex;gap:10px;align-items:center}.name{font-weight:800;color:#315fd4}.ip{margin-left:auto;color:#8b98ac;font-size:12px}.time{color:#9aa6b7;font-size:12px}.text{margin-top:5px;white-space:pre-wrap;word-break:break-word}.form{display:grid;grid-template-columns:180px 1fr auto;gap:10px;margin-top:14px}input,textarea,button{font:inherit;border-radius:12px}input,textarea{border:1px solid #cfdcf0;padding:11px 12px}textarea{resize:vertical;min-height:44px}button{border:0;padding:0 22px;background:linear-gradient(90deg,#7357e8,#4e6ef5);color:white;font-weight:800;cursor:pointer}.note{color:#7c8da7;font-size:13px;margin-top:9px}@media(max-width:680px){.form{grid-template-columns:1fr}.messages{height:55vh}button{height:46px}}
+</style></head><body><div class='wrap'><div class='hero'><img src='/__logo'><div><h1>%1 聊天室</h1><div class='sub'>自由留言 · 訪客免登入 · 留言顯示 IP</div></div></div><div class='panel'><div id='messages' class='messages'></div><div class='form'><input id='name' maxlength='30' placeholder='名稱（可留空）'><textarea id='message' maxlength='1000' placeholder='輸入留言…'></textarea><button id='send'>送出</button></div><div class='note'>Enter 送出，Shift+Enter 換行。聊天室名稱會跟隨 HFS 名稱。</div></div></div><script>
+const box=document.getElementById('messages'),nameEl=document.getElementById('name'),msgEl=document.getElementById('message');function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}async function load(){try{const r=await fetch('/__chat/messages',{cache:'no-store'});if(!r.ok)return;const a=await r.json();box.innerHTML=a.map(x=>`<div class="msg"><div class="top"><span class="name">${esc(x.name)}</span><span class="time">${esc(x.time)}</span><span class="ip">IP: ${esc(x.ip)}</span></div><div class="text">${esc(x.message)}</div></div>`).join('');box.scrollTop=box.scrollHeight}catch(e){}}async function send(){const m=msgEl.value.trim();if(!m)return;const body=new URLSearchParams({name:nameEl.value,message:m});const r=await fetch('/__chat/send',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body});if(r.ok){msgEl.value='';await load();msgEl.focus()}}document.getElementById('send').onclick=send;msgEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});load();setInterval(load,2000);
+</script></body></html>)HTML").arg(escapeHtml(m_siteName));
     return localizeWebHtml(html).toUtf8();
 }
 

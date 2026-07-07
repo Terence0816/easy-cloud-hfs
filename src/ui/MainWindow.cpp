@@ -1,4 +1,4 @@
-#include "ui/MainWindow.h"
+﻿#include "ui/MainWindow.h"
 
 #include "app/Controller.h"
 
@@ -14,11 +14,13 @@
 #include <QCoreApplication>
 #include <QCursor>
 #include <QDir>
+#include <QDesktopServices>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QFontMetrics>
 #include <QGraphicsDropShadowEffect>
 #include <QFrame>
 #include <QGridLayout>
@@ -35,6 +37,7 @@
 #include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScreen>
 #include <QScrollArea>
 #include <QSettings>
@@ -55,6 +58,66 @@
 #include <functional>
 
 namespace {
+qreal g_uiScale = 1.0;
+
+qreal calculateUiScale()
+{
+    QScreen *screen = QGuiApplication::primaryScreen();
+    if (!screen) {
+        return 1.0;
+    }
+
+    // QScreen geometry is expressed in device-independent pixels when Qt high-DPI
+    // scaling is active. This means Windows 150%/200% scaling is already taken
+    // into account, and we only add a modest boost when a display still exposes
+    // substantially more logical workspace than a 1920x1080 reference screen.
+    const QSize available = screen->availableGeometry().size();
+    const qreal widthRatio = available.width() / 1920.0;
+    const qreal heightRatio = available.height() / 1080.0;
+    const qreal workspaceRatio = qMin(widthRatio, heightRatio);
+    if (workspaceRatio <= 1.0) {
+        return 1.0;
+    }
+
+    // Square-root growth keeps 2K comfortable without making 4K oversized:
+    // 2560x1440 -> ~1.15x, 3840x2160 -> ~1.41x (at 100% OS scaling).
+    return qBound<qreal>(1.0, std::sqrt(workspaceRatio), 1.50);
+}
+
+int sp(int value)
+{
+    if (value <= 0) {
+        return value;
+    }
+    return qMax(1, qRound(value * g_uiScale));
+}
+
+
+QString scaleStyleSheetPixels(const QString &style, qreal scale)
+{
+    if (scale <= 1.001) {
+        return style;
+    }
+
+    static const QRegularExpression pixelPattern(QStringLiteral(R"((\d+(?:\.\d+)?)px)"));
+    QString result;
+    result.reserve(style.size() + style.size() / 12);
+
+    int last = 0;
+    auto matchIt = pixelPattern.globalMatch(style);
+    while (matchIt.hasNext()) {
+        const QRegularExpressionMatch match = matchIt.next();
+        result += style.mid(last, match.capturedStart() - last);
+
+        const qreal value = match.captured(1).toDouble();
+        const int scaledValue = value <= 0.0 ? 0 : qMax(1, qRound(value * scale));
+        result += QString::number(scaledValue) + QStringLiteral("px");
+        last = match.capturedEnd();
+    }
+    result += style.mid(last);
+    return result;
+}
+
 class ShareDropArea : public QFrame {
 public:
     std::function<void(const QStringList &)> onDropPaths;
@@ -122,6 +185,8 @@ enum class UiIcon {
     Shares,
     Settings,
     About,
+    Chat,
+    Upload,
     Download,
     Data,
     Connections,
@@ -187,6 +252,24 @@ QPixmap drawUiIcon(UiIcon kind, const QColor &foreground, const QColor &backgrou
         painter.setFont(QFont(QStringLiteral("Microsoft JhengHei UI"), qMax(8, int(17 * scale)), QFont::Bold));
         painter.drawText(R(8, 8, 32, 32), Qt::AlignCenter, QStringLiteral("i"));
         break;
+    case UiIcon::Chat:
+        painter.drawRoundedRect(R(7, 9, 34, 26), 8 * scale, 8 * scale);
+        painter.drawLine(P(15, 35), P(11, 41));
+        painter.drawLine(P(11, 41), P(21, 36));
+        painter.setBrush(foreground);
+        painter.setPen(Qt::NoPen);
+        painter.drawEllipse(R(14, 20, 4, 4));
+        painter.drawEllipse(R(22, 20, 4, 4));
+        painter.drawEllipse(R(30, 20, 4, 4));
+        painter.setBrush(Qt::NoBrush);
+        painter.setPen(pen);
+        break;
+    case UiIcon::Upload:
+        painter.drawRoundedRect(R(7, 21, 34, 18), 7 * scale, 7 * scale);
+        painter.drawLine(P(24, 31), P(24, 9));
+        painter.drawLine(P(16, 17), P(24, 9));
+        painter.drawLine(P(32, 17), P(24, 9));
+        break;
     case UiIcon::Download:
         painter.drawLine(P(24, 12), P(24, 31));
         painter.drawLine(P(16, 24), P(24, 32));
@@ -220,8 +303,8 @@ QPixmap drawUiIcon(UiIcon kind, const QColor &foreground, const QColor &backgrou
 QIcon buildSidebarIcon(UiIcon kind)
 {
     QIcon icon;
-    const QPixmap normal = drawUiIcon(kind, QColor(QStringLiteral("#64748b")), Qt::transparent, 24);
-    const QPixmap active = drawUiIcon(kind, QColor(QStringLiteral("#6d5ce7")), Qt::transparent, 24);
+    const QPixmap normal = drawUiIcon(kind, QColor(QStringLiteral("#64748b")), Qt::transparent, sp(24));
+    const QPixmap active = drawUiIcon(kind, QColor(QStringLiteral("#6d5ce7")), Qt::transparent, sp(24));
     icon.addPixmap(normal, QIcon::Normal, QIcon::Off);
     icon.addPixmap(active, QIcon::Normal, QIcon::On);
     icon.addPixmap(active, QIcon::Active, QIcon::Off);
@@ -232,8 +315,8 @@ QIcon buildSidebarIcon(UiIcon kind)
 void applySoftShadow(QWidget *widget, int blurRadius = 24, int yOffset = 7)
 {
     auto *shadow = new QGraphicsDropShadowEffect(widget);
-    shadow->setBlurRadius(blurRadius);
-    shadow->setOffset(0, yOffset);
+    shadow->setBlurRadius(sp(blurRadius));
+    shadow->setOffset(0, sp(yOffset));
     shadow->setColor(QColor(26, 38, 64, 28));
     widget->setGraphicsEffect(shadow);
 }
@@ -251,13 +334,13 @@ QFrame *makeCard(const QString &title,
     applySoftShadow(card, 22, 6);
 
     auto *layout = new QVBoxLayout(card);
-    layout->setContentsMargins(22, 20, 22, 22);
-    layout->setSpacing(9);
+    layout->setContentsMargins(sp(22), sp(20), sp(22), sp(22));
+    layout->setSpacing(sp(9));
 
     auto *icon = new QLabel(card);
     icon->setObjectName(QStringLiteral("StatIcon"));
-    icon->setFixedSize(48, 48);
-    icon->setPixmap(drawUiIcon(iconKind, iconColor, iconBackground, 48));
+    icon->setFixedSize(sp(48), sp(48));
+    icon->setPixmap(drawUiIcon(iconKind, iconColor, iconBackground, sp(48)));
     icon->setAlignment(Qt::AlignCenter);
 
     auto *titleLabel = new QLabel(title, card);
@@ -285,9 +368,9 @@ QPushButton *makeSidebarButton(const QString &text, UiIcon iconKind, QWidget *pa
     auto *button = new QPushButton(text, parent);
     button->setCheckable(true);
     button->setCursor(Qt::PointingHandCursor);
-    button->setMinimumHeight(50);
+    button->setMinimumHeight(sp(50));
     button->setIcon(buildSidebarIcon(iconKind));
-    button->setIconSize(QSize(22, 22));
+    button->setIconSize(QSize(sp(22), sp(22)));
     button->setObjectName(QStringLiteral("SidebarButton"));
     return button;
 }
@@ -297,8 +380,8 @@ QLabel *makeFormLabel(const QString &text, QWidget *parent = nullptr)
     auto *label = new QLabel(text, parent);
     label->setObjectName(QStringLiteral("FieldLabel"));
     label->setAlignment(Qt::AlignCenter);
-    label->setMinimumHeight(40);
-    label->setMinimumWidth(118);
+    label->setMinimumHeight(sp(40));
+    label->setMinimumWidth(sp(118));
     return label;
 }
 
@@ -316,17 +399,17 @@ QPixmap buildShareIcon(const ShareItem &share)
 {
     const bool isFolder = share.type == ShareType::Directory || share.type == ShareType::VirtualDirectory;
 
-    QPixmap pixmap(72, 72);
+    QPixmap pixmap(sp(72), sp(72));
     pixmap.fill(Qt::transparent);
 
     QPainter painter(&pixmap);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(Qt::NoPen);
     painter.setBrush(isFolder ? QColor(QStringLiteral("#ffe8a3")) : QColor(QStringLiteral("#cfe9ff")));
-    painter.drawRoundedRect(pixmap.rect(), 20, 20);
+    painter.drawRoundedRect(pixmap.rect(), sp(20), sp(20));
 
     painter.setPen(isFolder ? QColor(QStringLiteral("#cf9600")) : QColor(QStringLiteral("#148fe8")));
-    painter.setFont(QFont(QStringLiteral("Microsoft JhengHei UI"), 24, QFont::Bold));
+    painter.setFont(QFont(QStringLiteral("Microsoft JhengHei UI"), sp(24), QFont::Bold));
     painter.drawText(pixmap.rect(), Qt::AlignCenter, isFolder ? QStringLiteral("D") : QStringLiteral("F"));
     return pixmap;
 }
@@ -412,8 +495,19 @@ MainWindow::MainWindow(Controller *controller, QWidget *parent)
     , m_controller(controller)
 {
     setWindowTitle(QStringLiteral("Easy Cloud HFS - 檔案分享伺服器"));
-    resize(1180, 720);
-    setMinimumSize(900, 600);
+    g_uiScale = calculateUiScale();
+
+    // Keep the whole interface visible on first launch while still allowing
+    // proportional resizing.  The minimum size is capped to the current
+    // screen so smaller displays are never forced beyond their work area.
+    QSize availableSize(sp(1380), sp(820));
+    if (QScreen *screen = QGuiApplication::primaryScreen()) {
+        availableSize = screen->availableGeometry().size();
+    }
+    const int safeWidth = qMax(sp(960), availableSize.width() - sp(24));
+    const int safeHeight = qMax(sp(620), availableSize.height() - sp(48));
+    setMinimumSize(qMin(sp(1120), safeWidth), qMin(sp(700), safeHeight));
+    resize(qMin(sp(1380), safeWidth), qMin(sp(820), safeHeight));
 
     buildUi();
     setupTrayIcon();
@@ -469,7 +563,7 @@ void MainWindow::restoreWindowSettings()
 {
     const AppSettings settings = m_controller->settings();
 
-    QSize targetSize(settings.windowWidth, settings.windowHeight);
+    QSize targetSize(sp(settings.windowWidth), sp(settings.windowHeight));
     if (QScreen *screen = QGuiApplication::primaryScreen()) {
         const QSize available = screen->availableGeometry().size();
         const int maxWidth = qMax(760, available.width() - 24);
@@ -491,8 +585,8 @@ void MainWindow::persistWindowSettings()
 {
     AppSettings settings = m_controller->settings();
     const QSize storedSize = isMaximized() ? normalGeometry().size() : size();
-    settings.windowWidth = qMax(minimumWidth(), storedSize.width());
-    settings.windowHeight = qMax(minimumHeight(), storedSize.height());
+    settings.windowWidth = qMax(900, qRound(storedSize.width() / g_uiScale));
+    settings.windowHeight = qMax(600, qRound(storedSize.height() / g_uiScale));
     settings.windowMaximized = isMaximized();
     m_controller->saveSystemSettings(settings);
 }
@@ -586,21 +680,23 @@ void MainWindow::buildSidebar(QHBoxLayout *rootLayout)
 {
     auto *sidebar = new QFrame(m_central);
     sidebar->setObjectName(QStringLiteral("Sidebar"));
-    sidebar->setFixedWidth(278);
+    sidebar->setMinimumWidth(sp(240));
+    sidebar->setMaximumWidth(sp(320));
+    sidebar->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
 
     auto *layout = new QVBoxLayout(sidebar);
-    layout->setContentsMargins(20, 22, 20, 20);
-    layout->setSpacing(10);
+    layout->setContentsMargins(sp(20), sp(22), sp(20), sp(20));
+    layout->setSpacing(sp(10));
 
     auto *brandBox = new QFrame(sidebar);
     brandBox->setObjectName(QStringLiteral("BrandBox"));
     auto *brandLayout = new QVBoxLayout(brandBox);
-    brandLayout->setContentsMargins(8, 8, 8, 16);
-    brandLayout->setSpacing(5);
+    brandLayout->setContentsMargins(sp(8), sp(8), sp(8), sp(16));
+    brandLayout->setSpacing(sp(5));
 
     auto *logo = new QLabel(brandBox);
-    logo->setPixmap(QPixmap(QStringLiteral(":/desktop_logo.png")).scaled(104, 104, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    logo->setFixedSize(104, 104);
+    logo->setPixmap(QPixmap(QStringLiteral(":/desktop_logo.png")).scaled(sp(104), sp(104), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    logo->setFixedSize(sp(104), sp(104));
     logo->setAlignment(Qt::AlignCenter);
 
     auto *brandTitle = new QLabel(QStringLiteral("Easy Cloud HFS"), brandBox);
@@ -620,13 +716,15 @@ void MainWindow::buildSidebar(QHBoxLayout *rootLayout)
     brandLayout->addWidget(m_brandSubtitle);
     brandLayout->addWidget(brandVersion);
     layout->addWidget(brandBox);
-    layout->addSpacing(6);
+    layout->addSpacing(sp(6));
 
     auto *buttonGroup = new QButtonGroup(this);
     buttonGroup->setExclusive(true);
 
     m_btnDashboard = makeSidebarButton(tx(QStringLiteral("儀表板"), QStringLiteral("Dashboard")), UiIcon::Dashboard, sidebar);
     m_btnShares = makeSidebarButton(tx(QStringLiteral("分享管理"), QStringLiteral("Shares")), UiIcon::Shares, sidebar);
+    m_btnChat = makeSidebarButton(tx(QStringLiteral("聊天室"), QStringLiteral("Chatroom")), UiIcon::Chat, sidebar);
+    m_btnChat->setCheckable(false);
     m_btnSettings = makeSidebarButton(tx(QStringLiteral("系統設定"), QStringLiteral("Settings")), UiIcon::Settings, sidebar);
     m_btnAbout = makeSidebarButton(tx(QStringLiteral("關於"), QStringLiteral("About")), UiIcon::About, sidebar);
 
@@ -637,8 +735,32 @@ void MainWindow::buildSidebar(QHBoxLayout *rootLayout)
 
     layout->addWidget(m_btnDashboard);
     layout->addWidget(m_btnShares);
+    layout->addWidget(m_btnChat);
     layout->addWidget(m_btnSettings);
     layout->addWidget(m_btnAbout);
+
+    connect(m_btnChat, &QPushButton::clicked, this, [this]() {
+        if (!m_controller->settings().chatEnabled) {
+            QMessageBox::information(this,
+                                     tx(QStringLiteral("聊天室未啟用"), QStringLiteral("Chatroom Disabled")),
+                                     tx(QStringLiteral("請先到「分享管理」勾選「啟用聊天室功能」。"),
+                                        QStringLiteral("Enable the chatroom first from the Shares page.")));
+            return;
+        }
+        if (!m_controller->isServerRunning()) {
+            QMessageBox::information(this,
+                                     tx(QStringLiteral("伺服器尚未啟動"), QStringLiteral("Server Not Running")),
+                                     tx(QStringLiteral("請先啟動伺服器，再進入聊天室。"),
+                                        QStringLiteral("Start the server before opening the chatroom.")));
+            return;
+        }
+
+        QString chatUrl = m_controller->localBaseUrl();
+        if (chatUrl.endsWith(QLatin1Char('/'))) {
+            chatUrl.chop(1);
+        }
+        QDesktopServices::openUrl(QUrl(chatUrl + QStringLiteral("/chat")));
+    });
 
     connect(buttonGroup, &QButtonGroup::idClicked, this, [this](int id) {
         switchPage(static_cast<PageIndex>(id), QString());
@@ -654,25 +776,28 @@ void MainWindow::buildSidebar(QHBoxLayout *rootLayout)
     footer->setObjectName(QStringLiteral("SidebarFooter"));
     applySoftShadow(footer, 20, 5);
     auto *footerLayout = new QVBoxLayout(footer);
-    footerLayout->setContentsMargins(16, 16, 16, 16);
-    footerLayout->setSpacing(9);
+    footerLayout->setContentsMargins(sp(16), sp(16), sp(16), sp(16));
+    footerLayout->setSpacing(sp(9));
 
     auto *statusRow = new QHBoxLayout();
-    statusRow->setSpacing(9);
+    statusRow->setSpacing(sp(9));
     m_statusDot = new QLabel(footer);
     m_statusDot->setObjectName(QStringLiteral("StatusDot"));
-    m_statusDot->setFixedSize(10, 10);
+    m_statusDot->setFixedSize(sp(10), sp(10));
 
     m_statusText = new QLabel(QStringLiteral("伺服器未啟動"), footer);
     m_statusText->setObjectName(QStringLiteral("StatusText"));
-    m_statusText->setWordWrap(true);
-    statusRow->addWidget(m_statusDot, 0, Qt::AlignTop);
+    m_statusText->setWordWrap(false);
+    m_statusText->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    m_statusText->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    statusRow->addWidget(m_statusDot, 0, Qt::AlignVCenter);
     statusRow->addWidget(m_statusText, 1);
     footerLayout->addLayout(statusRow);
 
     m_localUrlLabel = new QLabel(footer);
-    m_localUrlLabel->setObjectName(QStringLiteral("FooterLink"));
-    m_localUrlLabel->setWordWrap(true);
+    m_localUrlLabel->setObjectName(QStringLiteral("FooterLocalLink"));
+    m_localUrlLabel->setWordWrap(false);
+    m_localUrlLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_localUrlLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
     m_localUrlLabel->setOpenExternalLinks(false);
     connect(m_localUrlLabel, &QLabel::linkActivated, this, [this](const QString &link) {
@@ -681,7 +806,8 @@ void MainWindow::buildSidebar(QHBoxLayout *rootLayout)
 
     m_externalUrlLabel = new QLabel(footer);
     m_externalUrlLabel->setObjectName(QStringLiteral("FooterLink"));
-    m_externalUrlLabel->setWordWrap(true);
+    m_externalUrlLabel->setWordWrap(false);
+    m_externalUrlLabel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     m_externalUrlLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
     m_externalUrlLabel->setOpenExternalLinks(false);
     connect(m_externalUrlLabel, &QLabel::linkActivated, this, [this](const QString &link) {
@@ -700,7 +826,7 @@ void MainWindow::buildSidebar(QHBoxLayout *rootLayout)
     footerLayout->addWidget(m_speedLabel);
     layout->addWidget(footer);
 
-    rootLayout->addWidget(sidebar);
+    rootLayout->addWidget(sidebar, 22);
 }
 
 void MainWindow::buildContent(QHBoxLayout *rootLayout)
@@ -715,12 +841,12 @@ void MainWindow::buildContent(QHBoxLayout *rootLayout)
     auto *header = new QFrame(content);
     header->setObjectName(QStringLiteral("Header"));
     auto *headerLayout = new QHBoxLayout(header);
-    headerLayout->setContentsMargins(34, 26, 34, 20);
-    headerLayout->setSpacing(18);
+    headerLayout->setContentsMargins(sp(34), sp(26), sp(34), sp(20));
+    headerLayout->setSpacing(sp(18));
 
     auto *titleLayout = new QVBoxLayout();
     titleLayout->setContentsMargins(0, 0, 0, 0);
-    titleLayout->setSpacing(5);
+    titleLayout->setSpacing(sp(5));
 
     m_pageTitle = new QLabel(header);
     m_pageTitle->setObjectName(QStringLiteral("PageTitle"));
@@ -736,8 +862,8 @@ void MainWindow::buildContent(QHBoxLayout *rootLayout)
 
     m_startStopButton = new QPushButton(header);
     m_startStopButton->setCursor(Qt::PointingHandCursor);
-    m_startStopButton->setMinimumHeight(48);
-    m_startStopButton->setMinimumWidth(154);
+    m_startStopButton->setMinimumHeight(sp(48));
+    m_startStopButton->setMinimumWidth(sp(154));
     connect(m_startStopButton, &QPushButton::clicked, this, [this]() {
         if (m_isStoppingServer) {
             return;
@@ -764,19 +890,19 @@ void MainWindow::buildContent(QHBoxLayout *rootLayout)
 
     layout->addWidget(header);
     layout->addWidget(m_pages, 1);
-    rootLayout->addWidget(content, 1);
+    rootLayout->addWidget(content, 78);
 }
 
 void MainWindow::buildPages()
 {
     auto *dashboard = new QWidget(m_pages);
     auto *dashboardLayout = new QVBoxLayout(dashboard);
-    dashboardLayout->setContentsMargins(34, 18, 34, 30);
-    dashboardLayout->setSpacing(24);
+    dashboardLayout->setContentsMargins(sp(34), sp(18), sp(34), sp(30));
+    dashboardLayout->setSpacing(sp(24));
 
     auto *statsGrid = new QGridLayout();
-    statsGrid->setHorizontalSpacing(18);
-    statsGrid->setVerticalSpacing(18);
+    statsGrid->setHorizontalSpacing(sp(18));
+    statsGrid->setVerticalSpacing(sp(18));
     statsGrid->addWidget(makeCard(tx(QStringLiteral("總下載次數"), QStringLiteral("Total Downloads")), &m_totalDownloadsValue, &m_lblTotalDownloadsTitle, UiIcon::Download, QColor(QStringLiteral("#7657e8")), QColor(QStringLiteral("#f0ecff"))), 0, 0);
     statsGrid->addWidget(makeCard(tx(QStringLiteral("總下載流量"), QStringLiteral("Total Data Served")), &m_totalBytesValue, &m_lblTotalBytesTitle, UiIcon::Data, QColor(QStringLiteral("#2f7df4")), QColor(QStringLiteral("#eaf3ff"))), 0, 1);
     statsGrid->addWidget(makeCard(tx(QStringLiteral("目前連線"), QStringLiteral("Active Connections")), &m_activeConnectionsValue, &m_lblActiveConnectionsTitle, UiIcon::Connections, QColor(QStringLiteral("#20a96b")), QColor(QStringLiteral("#e7f8f0"))), 0, 2);
@@ -791,7 +917,7 @@ void MainWindow::buildPages()
     infoCard->setObjectName(QStringLiteral("InfoCard"));
     applySoftShadow(infoCard, 24, 7);
     auto *infoLayout = new QVBoxLayout(infoCard);
-    infoLayout->setContentsMargins(26, 24, 26, 24);
+    infoLayout->setContentsMargins(sp(26), sp(24), sp(26), sp(24));
     m_lblServerInfoTitle = new QLabel(tx(QStringLiteral("伺服器運作資訊"), QStringLiteral("Server Information")), infoCard);
     m_lblServerInfoTitle->setObjectName(QStringLiteral("SectionTitle"));
     m_serverInfoLabel = new QLabel(infoCard);
@@ -806,29 +932,35 @@ void MainWindow::buildPages()
 
     m_sharePage = new QWidget(m_pages);
     auto *shareLayout = new QVBoxLayout(m_sharePage);
-    shareLayout->setContentsMargins(24, 22, 24, 22);
-    shareLayout->setSpacing(16);
+    shareLayout->setContentsMargins(sp(24), sp(22), sp(24), sp(22));
+    shareLayout->setSpacing(sp(16));
 
     auto *shareHeader = new QHBoxLayout();
-    shareHeader->setSpacing(10);
+    shareHeader->setSpacing(sp(10));
     m_shareExternalLinkCheck = new QCheckBox(tx(QStringLiteral("啟用外部連結"), QStringLiteral("Enable External Link")), m_sharePage);
+    m_chatEnabledCheck = new QCheckBox(tx(QStringLiteral("啟用聊天室功能"), QStringLiteral("Enable Chatroom")), m_sharePage);
+    m_chatEnabledCheck->setChecked(m_controller->settings().chatEnabled);
+    m_chatEnabledCheck->setCursor(Qt::PointingHandCursor);
+    connect(m_chatEnabledCheck, &QCheckBox::toggled, m_controller, &Controller::setChatEnabled);
     m_shareExternalInfoLabel = new QLabel(tx(QStringLiteral("使用 Cloudflare Tunnel 代理"), QStringLiteral("Use Cloudflare Tunnel Proxy")), m_sharePage);
     m_shareExternalInfoLabel->setObjectName(QStringLiteral("ExternalPrefixLabel"));
     m_shareExternalInfoLabel->setAlignment(Qt::AlignCenter);
     m_shareExternalInfoLabel->setTextFormat(Qt::RichText);
     m_shareExternalInfoLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
     m_shareExternalInfoLabel->setOpenExternalLinks(false);
-    m_shareExternalInfoLabel->setMinimumWidth(300);
-    m_shareExternalInfoLabel->setMaximumWidth(380);
-    m_shareExternalInfoLabel->setMinimumHeight(40);
+    m_shareExternalInfoLabel->setMinimumWidth(sp(170));
+    m_shareExternalInfoLabel->setMaximumWidth(sp(360));
+    m_shareExternalInfoLabel->setMinimumHeight(sp(40));
+    m_shareExternalInfoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     m_btnSaveShares = new QPushButton(tx(QStringLiteral("儲存分享"), QStringLiteral("Save Shares")), m_sharePage);
     m_btnSaveShares->setObjectName(QStringLiteral("SecondaryButton"));
     m_btnAddShare = new QPushButton(tx(QStringLiteral("新增分享"), QStringLiteral("Add Share")), m_sharePage);
     m_btnSaveShares->setCursor(Qt::PointingHandCursor);
     m_btnAddShare->setCursor(Qt::PointingHandCursor);
-    m_btnSaveShares->setMinimumHeight(40);
-    m_btnAddShare->setMinimumHeight(42);
-    m_btnAddShare->setMinimumWidth(128);
+    m_btnSaveShares->setMinimumHeight(sp(40));
+    m_btnSaveShares->setMinimumWidth(sp(104));
+    m_btnAddShare->setMinimumHeight(sp(42));
+    m_btnAddShare->setMinimumWidth(sp(128));
     m_shareExternalLinkCheck->setCursor(Qt::PointingHandCursor);
     connect(m_shareExternalLinkCheck, &QCheckBox::toggled, this, [this](bool checked) {
         m_controller->setExternalLinkSettings(checked);
@@ -839,24 +971,42 @@ void MainWindow::buildPages()
     });
     connect(m_btnSaveShares, &QPushButton::clicked, m_controller, &Controller::saveSharesSnapshot);
     connect(m_btnAddShare, &QPushButton::clicked, this, &MainWindow::showShareMenu);
-    shareHeader->addWidget(m_btnAddShare);
-    shareHeader->addStretch();
-    shareHeader->addWidget(m_shareExternalLinkCheck);
-    shareHeader->addWidget(m_shareExternalInfoLabel);
-    shareHeader->addWidget(m_btnSaveShares);
+    shareHeader->addWidget(m_btnAddShare, 0);
+    shareHeader->addWidget(m_chatEnabledCheck, 0);
+    shareHeader->addWidget(m_shareExternalLinkCheck, 0);
+    shareHeader->addWidget(m_shareExternalInfoLabel, 1);
+    shareHeader->addWidget(m_btnSaveShares, 0);
     shareLayout->addLayout(shareHeader);
 
     auto *dropArea = new ShareDropArea(m_sharePage);
     dropArea->setObjectName(QStringLiteral("DropArea"));
-    dropArea->setMinimumHeight(120);
+    dropArea->setMinimumHeight(sp(190));
     auto *dropLayout = new QVBoxLayout(dropArea);
-    dropLayout->setContentsMargins(24, 24, 24, 24);
-    dropLayout->setSpacing(12);
+    dropLayout->setContentsMargins(sp(24), sp(22), sp(24), sp(22));
+    dropLayout->setSpacing(sp(9));
+
+    m_dropIcon = new QLabel(dropArea);
+    m_dropIcon->setObjectName(QStringLiteral("DropIcon"));
+    m_dropIcon->setFixedSize(sp(56), sp(56));
+    m_dropIcon->setPixmap(drawUiIcon(UiIcon::Upload, QColor(QStringLiteral("#6d5ce7")), Qt::transparent, sp(56)));
+    m_dropIcon->setAlignment(Qt::AlignCenter);
+
     m_dropTitle = new QLabel(tx(QStringLiteral("可直接拖曳檔案或資料夾到這裡快速連結"), QStringLiteral("Drag and drop files or folders here to share")), dropArea);
     m_dropTitle->setObjectName(QStringLiteral("DropTitle"));
     m_dropTitle->setAlignment(Qt::AlignCenter);
+    m_dropTitle->setWordWrap(true);
+
+    m_dropSubtitle = new QLabel(tx(QStringLiteral("請將檔案或資料夾拖曳至此區域，或使用上方「新增分享」按鈕"),
+                                      QStringLiteral("Drop files or folders here, or use the Add Share button above")),
+                                  dropArea);
+    m_dropSubtitle->setObjectName(QStringLiteral("DropHint"));
+    m_dropSubtitle->setAlignment(Qt::AlignCenter);
+    m_dropSubtitle->setWordWrap(true);
+
     dropLayout->addStretch();
+    dropLayout->addWidget(m_dropIcon, 0, Qt::AlignHCenter);
     dropLayout->addWidget(m_dropTitle, 0, Qt::AlignCenter);
+    dropLayout->addWidget(m_dropSubtitle, 0, Qt::AlignCenter);
     dropLayout->addStretch();
     dropArea->onDropPaths = [this](const QStringList &paths) { m_controller->addPaths(paths); };
     shareLayout->addWidget(dropArea);
@@ -867,30 +1017,53 @@ void MainWindow::buildPages()
     auto *listContainer = new QWidget(listScroll);
     m_shareListLayout = new QVBoxLayout(listContainer);
     m_shareListLayout->setContentsMargins(0, 0, 0, 0);
-    m_shareListLayout->setSpacing(12);
+    m_shareListLayout->setSpacing(sp(12));
     listScroll->setWidget(listContainer);
     shareLayout->addWidget(listScroll, 1);
+
+    auto *tipBar = new QFrame(m_sharePage);
+    tipBar->setObjectName(QStringLiteral("TipBar"));
+    auto *tipLayout = new QHBoxLayout(tipBar);
+    tipLayout->setContentsMargins(sp(14), sp(10), sp(14), sp(10));
+    tipLayout->setSpacing(sp(10));
+
+    auto *tipIcon = new QLabel(tipBar);
+    tipIcon->setObjectName(QStringLiteral("TipIcon"));
+    tipIcon->setFixedSize(sp(24), sp(24));
+    const QPixmap tipPixmap(QStringLiteral(":/tip_info.png"));
+    tipIcon->setPixmap(tipPixmap.scaled(sp(24), sp(24), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    tipIcon->setAlignment(Qt::AlignCenter);
+
+    m_shareTipLabel = new QLabel(tx(QStringLiteral("小提示：啟用聊天室後，使用者可以在首頁點擊「聊天室」進入聊天介面，即可開始交流！"),
+                                      QStringLiteral("Tip: After enabling chat, visitors can open Chatroom from the home page and start chatting.")),
+                                  tipBar);
+    m_shareTipLabel->setObjectName(QStringLiteral("ShareTip"));
+    m_shareTipLabel->setWordWrap(true);
+
+    tipLayout->addWidget(tipIcon, 0, Qt::AlignVCenter);
+    tipLayout->addWidget(m_shareTipLabel, 1, Qt::AlignVCenter);
+    shareLayout->addWidget(tipBar);
 
     m_pages->addWidget(makeScrollablePage(m_sharePage, m_pages));
 
     auto *systemPage = new QWidget(m_pages);
     auto *systemLayout = new QVBoxLayout(systemPage);
-    systemLayout->setContentsMargins(34, 28, 34, 28);
-    systemLayout->setSpacing(20);
+    systemLayout->setContentsMargins(sp(34), sp(28), sp(34), sp(28));
+    systemLayout->setSpacing(sp(20));
 
     auto *systemCard = new QFrame(systemPage);
     systemCard->setObjectName(QStringLiteral("InfoCard"));
     applySoftShadow(systemCard, 24, 7);
     auto *systemCardLayout = new QVBoxLayout(systemCard);
-    systemCardLayout->setContentsMargins(28, 26, 28, 28);
-    systemCardLayout->setSpacing(22);
+    systemCardLayout->setContentsMargins(sp(28), sp(26), sp(28), sp(28));
+    systemCardLayout->setSpacing(sp(22));
     m_lblSystemTitle = new QLabel(tx(QStringLiteral("系統設定"), QStringLiteral("System Settings")), systemCard);
     m_lblSystemTitle->setObjectName(QStringLiteral("SectionTitle"));
     systemCardLayout->addWidget(m_lblSystemTitle);
 
     auto *logoRow = new QHBoxLayout();
     m_logoPreview = new QLabel(systemCard);
-    m_logoPreview->setFixedSize(112, 112);
+    m_logoPreview->setFixedSize(sp(112), sp(112));
     m_btnSelectLogo = new QPushButton(tx(QStringLiteral("選擇 Logo"), QStringLiteral("Select Logo")), systemCard);
     m_btnSelectLogo->setObjectName(QStringLiteral("SecondaryButton"));
     m_btnClearLogo = new QPushButton(tx(QStringLiteral("移除 Logo"), QStringLiteral("Remove Logo")), systemCard);
@@ -912,7 +1085,7 @@ void MainWindow::buildPages()
         m_controller->saveSystemSettings(settings);
     });
     auto *logoButtonsLayout = new QVBoxLayout();
-    logoButtonsLayout->setSpacing(10);
+    logoButtonsLayout->setSpacing(sp(10));
     logoButtonsLayout->addWidget(m_btnSelectLogo);
     logoButtonsLayout->addWidget(m_btnClearLogo);
     logoButtonsLayout->addStretch();
@@ -925,8 +1098,8 @@ void MainWindow::buildPages()
     auto *form = new QFormLayout();
     form->setLabelAlignment(Qt::AlignCenter);
     form->setFormAlignment(Qt::AlignTop);
-    form->setHorizontalSpacing(20);
-    form->setVerticalSpacing(18);
+    form->setHorizontalSpacing(sp(20));
+    form->setVerticalSpacing(sp(18));
 
     m_siteNameEdit = new QLineEdit(systemCard);
     m_portSpin = new NoWheelSpinBox(systemCard);
@@ -969,13 +1142,13 @@ void MainWindow::buildPages()
 
     auto *aboutPage = new QWidget(m_pages);
     auto *aboutLayout = new QVBoxLayout(aboutPage);
-    aboutLayout->setContentsMargins(34, 28, 34, 28);
+    aboutLayout->setContentsMargins(sp(34), sp(28), sp(34), sp(28));
     auto *aboutCard = new QFrame(aboutPage);
     aboutCard->setObjectName(QStringLiteral("InfoCard"));
     applySoftShadow(aboutCard, 24, 7);
     auto *aboutCardLayout = new QVBoxLayout(aboutCard);
-    aboutCardLayout->setContentsMargins(34, 30, 34, 30);
-    aboutCardLayout->setSpacing(18);
+    aboutCardLayout->setContentsMargins(sp(34), sp(30), sp(34), sp(30));
+    aboutCardLayout->setSpacing(sp(18));
     m_lblAboutTitle = new QLabel(tx(QStringLiteral("關於"), QStringLiteral("About")), aboutCard);
     m_lblAboutTitle->setObjectName(QStringLiteral("SectionTitle"));
     m_aboutLabel = new QLabel(aboutCard);
@@ -1046,16 +1219,60 @@ void MainWindow::refreshFooter()
             status = tx(QStringLiteral("已就緒，點擊下面連結複制網址"), QStringLiteral("Ready, click links below to copy URL"));
         }
     }
-    m_statusText->setText(status);
-    updateStatusVisuals(status);
+    const QString fullStatus = status;
+    if (m_controller->settings().externalLinkEnabled && !externalUrl.isEmpty()) {
+        status = tx(QStringLiteral("已就緒・點擊連結複製"), QStringLiteral("Ready · click link to copy"));
+    }
+
+    const int statusWidth = qMax(sp(120), m_statusText->contentsRect().width());
+    m_statusText->setText(m_statusText->fontMetrics().elidedText(status, Qt::ElideRight, statusWidth));
+    m_statusText->setToolTip(fullStatus);
+    updateStatusVisuals(fullStatus);
+
+    const auto setFooterLink = [this](QLabel *label, const QString &prefixZh, const QString &prefixEn,
+                                      const QString &url, bool preferFullLocalAddress = false) {
+        const QString prefix = tx(prefixZh, prefixEn);
+        int availableWidth = label->contentsRect().width();
+        if (availableWidth < sp(100)) {
+            availableWidth = sp(220);
+        }
+
+        const QFontMetrics metrics(label->font());
+        const int urlWidth = qMax(sp(70), availableWidth - metrics.horizontalAdvance(prefix) - sp(8));
+        QString displayCandidate = url;
+
+        // The LAN address is more useful when the complete IP is visible than when
+        // the scheme consumes space. Keep the real href untouched so clicking still
+        // copies the complete URL (including http:// and port).
+        if (preferFullLocalAddress && metrics.horizontalAdvance(displayCandidate) > urlWidth) {
+            const QUrl parsed(url);
+            QString host = parsed.host();
+            if (!host.isEmpty()) {
+                if (host.contains(QLatin1Char(':')) && !host.startsWith(QLatin1Char('['))) {
+                    host = QStringLiteral("[%1]").arg(host);
+                }
+                const int port = parsed.port(-1);
+                if (port > 0) {
+                    host += QStringLiteral(":%1").arg(port);
+                }
+                displayCandidate = host;
+            }
+        }
+
+        const QString displayUrl = metrics.elidedText(displayCandidate, Qt::ElideRight, urlWidth);
+        label->setText(QStringLiteral("%1<a href='%2'>%3</a>")
+                           .arg(prefix.toHtmlEscaped(), url.toHtmlEscaped(), displayUrl.toHtmlEscaped()));
+        label->setToolTip(url);
+    };
 
     const QString localUrl = m_controller->localBaseUrl();
-    m_localUrlLabel->setText(tx(QStringLiteral("內網：<a href='%1'>%1</a>"), QStringLiteral("Local: <a href='%1'>%1</a>")).arg(localUrl));
+    setFooterLink(m_localUrlLabel, QStringLiteral("內網："), QStringLiteral("Local: "), localUrl, true);
 
     if (externalUrl.isEmpty()) {
         m_externalUrlLabel->clear();
+        m_externalUrlLabel->setToolTip(QString());
     } else {
-        m_externalUrlLabel->setText(tx(QStringLiteral("代理：<a href='%1'>%1</a>"), QStringLiteral("Proxy: <a href='%1'>%1</a>")).arg(externalUrl));
+        setFooterLink(m_externalUrlLabel, QStringLiteral("代理："), QStringLiteral("Proxy: "), externalUrl, false);
     }
 
     m_connectionsLabel->setText(tx(QStringLiteral("連線數：%1"), QStringLiteral("Connections: %1")).arg(m_controller->stats().activeConnections));
@@ -1072,6 +1289,13 @@ void MainWindow::refreshShares()
     if (m_shareExternalLinkCheck && m_shareExternalInfoLabel) {
         const QSignalBlocker blocker1(m_shareExternalLinkCheck);
         m_shareExternalLinkCheck->setChecked(settings.externalLinkEnabled);
+    }
+    if (m_chatEnabledCheck) {
+        const QSignalBlocker blocker2(m_chatEnabledCheck);
+        m_chatEnabledCheck->setChecked(settings.chatEnabled);
+    }
+    if (m_btnChat) {
+        m_btnChat->setEnabled(settings.chatEnabled);
     }
 
     updateExternalLinkUiState();
@@ -1129,7 +1353,7 @@ void MainWindow::refreshHeaderTitle()
 
 void MainWindow::refreshAbout()
 {
-    m_aboutLabel->setText(tx(
+    m_aboutLabel->setText(scaleStyleSheetPixels(tx(
         QStringLiteral(
             "<div style='font-size:22px; font-weight:700; line-height:1.85;'>"
             "Easy Cloud HFS<br>"
@@ -1184,7 +1408,7 @@ void MainWindow::refreshAbout()
             "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
             "This is an independent tool and is not an official Cloudflare product."
             "</div>")
-    ));
+    ), g_uiScale));
 }
 
 void MainWindow::refreshStartStopButton()
@@ -1233,7 +1457,7 @@ void MainWindow::updateStatusVisuals(const QString &status)
         m_statusText->setStyleSheet(QStringLiteral("QLabel#StatusText{font-weight:700;color:%1;}").arg(textColor));
     }
     if (m_statusDot) {
-        m_statusDot->setStyleSheet(QStringLiteral("QLabel#StatusDot{background:%1;border:0;border-radius:5px;}").arg(dotColor));
+        m_statusDot->setStyleSheet(scaleStyleSheetPixels(QStringLiteral("QLabel#StatusDot{background:%1;border:0;border-radius:5px;}").arg(dotColor), g_uiScale));
     }
 }
 
@@ -1272,7 +1496,7 @@ void MainWindow::updateExternalLinkUiState()
                                      ? QStringLiteral("QLabel{background:#0f1726;color:#617899;border:1px solid #223452;border-radius:14px;padding:10px 14px;font-weight:600;}")
                                      : QStringLiteral("QLabel{background:#f3f6fa;color:#b5c0cf;border:1px solid #e0e7f0;border-radius:14px;padding:10px 14px;font-weight:600;}"));
 
-    m_shareExternalInfoLabel->setStyleSheet(style);
+    m_shareExternalInfoLabel->setStyleSheet(scaleStyleSheetPixels(style, g_uiScale));
 }
 
 void MainWindow::showShareMenu()
@@ -1323,11 +1547,11 @@ void MainWindow::rebuildShareList()
         auto *card = new QFrame(m_sharePage);
         card->setObjectName(QStringLiteral("ShareCard"));
         auto *cardLayout = new QHBoxLayout(card);
-        cardLayout->setContentsMargins(16, 12, 16, 12);
-        cardLayout->setSpacing(12);
+        cardLayout->setContentsMargins(sp(16), sp(12), sp(16), sp(12));
+        cardLayout->setSpacing(sp(12));
 
         auto *iconLabel = new QLabel(card);
-        iconLabel->setFixedSize(48, 48);
+        iconLabel->setFixedSize(sp(48), sp(48));
         iconLabel->setPixmap(buildShareIcon(share));
         iconLabel->setScaledContents(true);
 
@@ -1341,12 +1565,12 @@ void MainWindow::rebuildShareList()
         typeLabel->setObjectName(QStringLiteral("ShareTypeBadge"));
         typeLabel->setProperty("shareKind", isDirectoryShare(share) ? QStringLiteral("folder") : QStringLiteral("file"));
         typeLabel->setAlignment(Qt::AlignCenter);
-        typeLabel->setMinimumWidth(104);
-        typeLabel->setMinimumHeight(34);
+        typeLabel->setMinimumWidth(sp(104));
+        typeLabel->setMinimumHeight(sp(34));
 
         auto *removeButton = new QPushButton(tx(QStringLiteral("關閉"), QStringLiteral("Close")), card);
         removeButton->setObjectName(QStringLiteral("DangerButton"));
-        removeButton->setMinimumHeight(34);
+        removeButton->setMinimumHeight(sp(34));
 
         connect(removeButton, &QPushButton::clicked, this, [this, share]() {
             const auto reply = QMessageBox::question(this,
@@ -1412,8 +1636,8 @@ void MainWindow::saveSystemSettingsFromForm()
     updatedSettings.download.perIpLimitUnit = QStringLiteral("KB/s");
 
     const QSize storedSize = isMaximized() ? normalGeometry().size() : size();
-    updatedSettings.windowWidth = qMax(minimumWidth(), storedSize.width());
-    updatedSettings.windowHeight = qMax(minimumHeight(), storedSize.height());
+    updatedSettings.windowWidth = qMax(900, qRound(storedSize.width() / g_uiScale));
+    updatedSettings.windowHeight = qMax(600, qRound(storedSize.height() / g_uiScale));
     updatedSettings.windowMaximized = isMaximized();
     updatedSettings.clearSharesOnExit = false;
 
@@ -1454,22 +1678,26 @@ void MainWindow::applyTheme()
                                     "QPushButton#DangerButton,QPushButton#StopButton{background:#3a2430;color:#ff9aa5;border:1px solid #57323f;}"
                                     "QPushButton#DangerButton:hover,QPushButton#StopButton:hover{background:#4a2936;}"
                                     "QFrame#SidebarFooter,QFrame#InfoCard,QFrame#ShareCard,QFrame#ShareOptions,QFrame#StatCard{background:#171e2d;border:1px solid #2a3449;border-radius:18px;}"
-                                    "QFrame#DropArea{background:#151c2a;border:1px dashed #4d5670;border-radius:18px;}"
+                                    "QFrame#DropArea{background:#182238;border:2px dashed #8ea0cf;border-radius:18px;}"
+                                    "QFrame#TipBar{background:#182238;border:1px solid #34415f;border-radius:12px;}"
                                     "QLabel#StatusDot{background:#94a3b8;border-radius:5px;}"
-                                    "QLabel#FooterLink{color:#a9b3c6;} QLabel#FooterLink a{color:#9a8cff;}"
+                                    "QLabel#FooterLink{color:#a9b3c6;} QLabel#FooterLink a{color:#9a8cff;} QLabel#FooterLocalLink{color:#a9b3c6;font-size:12px;} QLabel#FooterLocalLink a{color:#a99cff;}"
+                                    "QFrame#SidebarFooter QLabel,QFrame#TipBar QLabel{background:transparent;border:0;}"
                                     "QLabel#FooterMeta{color:#8995aa;font-size:13px;}"
                                     "QLineEdit,QSpinBox,QComboBox{background:#121927;color:#ecf1fb;border:1px solid #303a50;border-radius:11px;padding:10px 12px;selection-background-color:#6d5ce7;}"
                                     "QLineEdit:focus,QSpinBox:focus,QComboBox:focus{border:1px solid #7667e8;}"
                                     "QScrollArea{background:transparent;border:0;} QScrollArea>QWidget>QWidget{background:transparent;}"
                                     "QCheckBox{spacing:9px;color:#c8d0e0;}"
                                     "QCheckBox::indicator{width:18px;height:18px;border:1px solid #46526b;border-radius:5px;background:#121927;}"
-                                    "QCheckBox::indicator:checked{background:#6d5ce7;border-color:#6d5ce7;}"
+                                    "QCheckBox::indicator:checked{background:transparent;border:0;border-image:url(:/checkbox_checked.png) 0 0 0 0 stretch stretch;}"
                                     "#PageTitle{font-size:30px;font-weight:800;color:#f4f7fb;}"
                                     "#PageSubtitle{font-size:14px;color:#8e99ae;}"
                                     "#CardTitle{font-size:14px;color:#97a3b7;font-weight:600;}"
                                     "#CardValue{font-size:34px;color:#f5f7fb;font-weight:800;}"
                                     "#SectionTitle{font-size:23px;font-weight:800;color:#eef2f9;background:transparent;border:0;padding:2px 0;}"
-                                    "#DropTitle{font-size:18px;font-weight:700;color:#b3bdd0;}"
+                                    "#DropTitle{font-size:18px;font-weight:800;color:#e1e9ff;}"
+                                    "#DropHint{font-size:13px;color:#9daccc;}"
+                                    "#ShareTip{font-size:12px;color:#b9c7df;background:transparent;}"
                                     "#ShareTitle{font-size:16px;font-weight:700;color:#edf1f8;}"
                                     "#ShareSubtext,#EmptyState{color:#8f9bb0;}"
                                     "QLabel#FieldLabel{background:#1b2333;color:#cbd4e5;border:1px solid #303a50;border-radius:10px;padding:8px 10px;font-size:14px;font-weight:700;}"
@@ -1501,22 +1729,26 @@ void MainWindow::applyTheme()
                                     "QPushButton#DangerButton,QPushButton#StopButton{background:#fff0f2;color:#d94f5c;border:1px solid #ffd4d8;}"
                                     "QPushButton#DangerButton:hover,QPushButton#StopButton:hover{background:#ffe6e9;}"
                                     "QFrame#SidebarFooter,QFrame#InfoCard,QFrame#ShareCard,QFrame#ShareOptions,QFrame#StatCard{background:#ffffff;border:1px solid #e6eaf1;border-radius:18px;}"
-                                    "QFrame#DropArea{background:#fbfbfe;border:1px dashed #cfd5e1;border-radius:18px;}"
+                                    "QFrame#DropArea{background:#f6f7ff;border:2px dashed #8e97e8;border-radius:18px;}"
+                                    "QFrame#TipBar{background:#f4f7ff;border:1px solid #d8e2ff;border-radius:12px;}"
                                     "QLabel#StatusDot{background:#94a3b8;border-radius:5px;}"
-                                    "QLabel#FooterLink{color:#6f7d91;} QLabel#FooterLink a{color:#6255e7;}"
+                                    "QLabel#FooterLink{color:#6f7d91;} QLabel#FooterLink a{color:#6255e7;} QLabel#FooterLocalLink{color:#6f7d91;font-size:12px;} QLabel#FooterLocalLink a{color:#5a4ee0;}"
+                                    "QFrame#SidebarFooter QLabel,QFrame#TipBar QLabel{background:transparent;border:0;}"
                                     "QLabel#FooterMeta{color:#7c899d;font-size:13px;}"
                                     "QLineEdit,QSpinBox,QComboBox{background:#ffffff;color:#1f2b40;border:1px solid #dfe4ec;border-radius:11px;padding:10px 12px;selection-background-color:#6d5ce7;}"
                                     "QLineEdit:focus,QSpinBox:focus,QComboBox:focus{border:1px solid #7566e7;}"
                                     "QScrollArea{background:transparent;border:0;} QScrollArea>QWidget>QWidget{background:transparent;}"
                                     "QCheckBox{spacing:9px;color:#4e5d73;}"
                                     "QCheckBox::indicator{width:18px;height:18px;border:1px solid #cbd2df;border-radius:5px;background:#ffffff;}"
-                                    "QCheckBox::indicator:checked{background:#6d5ce7;border-color:#6d5ce7;}"
+                                    "QCheckBox::indicator:checked{background:transparent;border:0;border-image:url(:/checkbox_checked.png) 0 0 0 0 stretch stretch;}"
                                     "#PageTitle{font-size:30px;font-weight:800;color:#17243a;}"
                                     "#PageSubtitle{font-size:14px;color:#7d899d;}"
                                     "#CardTitle{font-size:14px;color:#748096;font-weight:600;}"
                                     "#CardValue{font-size:34px;color:#17243a;font-weight:800;}"
                                     "#SectionTitle{font-size:23px;font-weight:800;color:#1b2940;background:transparent;border:0;padding:2px 0;}"
-                                    "#DropTitle{font-size:18px;font-weight:700;color:#607087;}"
+                                    "#DropTitle{font-size:18px;font-weight:800;color:#243c74;}"
+                                    "#DropHint{font-size:13px;color:#7d899d;}"
+                                    "#ShareTip{font-size:12px;color:#64748b;background:transparent;}"
                                     "#ShareTitle{font-size:16px;font-weight:700;color:#1f2d44;}"
                                     "#ShareSubtext,#EmptyState{color:#7d899d;}"
                                     "QLabel#FieldLabel{background:#f8f9fc;color:#526179;border:1px solid #e2e6ee;border-radius:10px;padding:8px 10px;font-size:14px;font-weight:700;}"
@@ -1529,7 +1761,7 @@ void MainWindow::applyTheme()
                                     "QScrollBar:vertical{background:transparent;width:10px;margin:3px;} QScrollBar::handle:vertical{background:#cfd5df;border-radius:5px;min-height:28px;} QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
                                     "QScrollBar:horizontal{background:transparent;height:10px;margin:3px;} QScrollBar::handle:horizontal{background:#cfd5df;border-radius:5px;min-width:28px;} QScrollBar::add-line:horizontal,QScrollBar::sub-line:horizontal{width:0;}");
 
-    qApp->setStyleSheet(style);
+    qApp->setStyleSheet(scaleStyleSheetPixels(style, g_uiScale));
 }
 
 
@@ -1593,6 +1825,7 @@ void MainWindow::retranslateUi()
 
     if (m_btnDashboard) m_btnDashboard->setText(tx(QStringLiteral("儀表板"), QStringLiteral("Dashboard")));
     if (m_btnShares) m_btnShares->setText(tx(QStringLiteral("分享管理"), QStringLiteral("Shares")));
+    if (m_btnChat) m_btnChat->setText(tx(QStringLiteral("聊天室"), QStringLiteral("Chatroom")));
     if (m_btnSettings) m_btnSettings->setText(tx(QStringLiteral("系統設定"), QStringLiteral("Settings")));
     if (m_btnAbout) m_btnAbout->setText(tx(QStringLiteral("關於"), QStringLiteral("About")));
     if (m_brandSubtitle) m_brandSubtitle->setText(tx(QStringLiteral("檔案分享伺服器"), QStringLiteral("File Sharing Server")));
@@ -1608,7 +1841,10 @@ void MainWindow::retranslateUi()
     if (m_btnSaveShares) m_btnSaveShares->setText(tx(QStringLiteral("儲存分享"), QStringLiteral("Save Shares")));
     if (m_btnAddShare) m_btnAddShare->setText(tx(QStringLiteral("新增分享"), QStringLiteral("Add Share")));
     if (m_shareExternalLinkCheck) m_shareExternalLinkCheck->setText(tx(QStringLiteral("啟用外部連結"), QStringLiteral("Enable External Link")));
+    if (m_chatEnabledCheck) m_chatEnabledCheck->setText(tx(QStringLiteral("啟用聊天室功能"), QStringLiteral("Enable Chatroom")));
     if (m_dropTitle) m_dropTitle->setText(tx(QStringLiteral("可直接拖曳檔案或資料夾到這裡快速連結"), QStringLiteral("Drag and drop files or folders here to share")));
+    if (m_dropSubtitle) m_dropSubtitle->setText(tx(QStringLiteral("請將檔案或資料夾拖曳至此區域，或使用上方「新增分享」按鈕"), QStringLiteral("Drop files or folders here, or use the Add Share button above")));
+    if (m_shareTipLabel) m_shareTipLabel->setText(tx(QStringLiteral("小提示：啟用聊天室後，使用者可以在首頁點擊「聊天室」進入聊天介面，即可開始交流！"), QStringLiteral("Tip: After enabling chat, visitors can open Chatroom from the home page and start chatting.")));
 
     if (m_lblSystemTitle) m_lblSystemTitle->setText(tx(QStringLiteral("系統設定"), QStringLiteral("System Settings")));
     if (m_btnSelectLogo) m_btnSelectLogo->setText(tx(QStringLiteral("選擇 Logo"), QStringLiteral("Select Logo")));

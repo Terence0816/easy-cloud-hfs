@@ -25,6 +25,7 @@ public:
     void setLogoPath(const QString &logoPath);
     void setWebLanguage(const QString &language);
     void setDownloadSettings(const DownloadSettings &settings);
+    void setChatEnabled(bool enabled);
     void setShares(const QList<ShareItem> &shares);
 
     bool start(quint16 port);
@@ -119,6 +120,7 @@ private:
     [[nodiscard]] QString detectClientAddress(QTcpSocket *socket) const;
     [[nodiscard]] QString canonicalSafePath(const QString &root, const QString &relativePath, bool allowMissingLeaf = false) const;
     [[nodiscard]] QByteArray renderHomePage() const;
+    [[nodiscard]] QByteArray renderChatPage() const;
     [[nodiscard]] QByteArray renderLoginPage(bool badPassword) const;
     [[nodiscard]] QByteArray renderDirectoryPage(const ShareItem &share,
                                                  const QString &rootPath,
@@ -188,6 +190,8 @@ private:
     QString m_logoPath;
     QString m_webLanguage = QStringLiteral("\u7e41\u9ad4\u4e2d\u6587");
     DownloadSettings m_downloadSettings;
+    bool m_chatEnabled = true;
+    QJsonArray m_chatMessages;
     QList<ShareItem> m_shares;
     QHash<QTcpSocket *, ConnectionState> m_connections;
     QHash<QTcpSocket *, FileTransfer *> m_transfers;

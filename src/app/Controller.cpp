@@ -598,6 +598,15 @@ void Controller::setExternalLinkSettings(bool enabled)
     updateExternalSyncTimer();
 }
 
+void Controller::setChatEnabled(bool enabled)
+{
+    if (m_settings.chatEnabled == enabled) return;
+    m_settings.chatEnabled = enabled;
+    m_store.saveSettings(m_settings);
+    reloadServerConfiguration();
+    emit settingsChanged();
+}
+
 void Controller::saveSharesSnapshot()
 {
     const bool sharesSaved = m_store.saveShares(m_shares);
@@ -945,20 +954,23 @@ void Controller::reloadServerConfiguration()
         const QString siteName = m_settings.siteName;
         const QString logoPath = m_settings.logoPath;
         const DownloadSettings downloadSettings = m_settings.download;
+        const bool chatEnabled = m_settings.chatEnabled;
         const QList<ShareItem> shares = m_shares;
 
         if (m_httpServer->thread() == QThread::currentThread()) {
             m_httpServer->setSiteName(siteName);
             m_httpServer->setLogoPath(logoPath);
             m_httpServer->setDownloadSettings(downloadSettings);
+            m_httpServer->setChatEnabled(chatEnabled);
             m_httpServer->setShares(shares);
         } else {
             QMetaObject::invokeMethod(
                 m_httpServer,
-                [this, siteName, logoPath, downloadSettings, shares]() {
+                [this, siteName, logoPath, downloadSettings, chatEnabled, shares]() {
                     m_httpServer->setSiteName(siteName);
                     m_httpServer->setLogoPath(logoPath);
                             m_httpServer->setDownloadSettings(downloadSettings);
+                    m_httpServer->setChatEnabled(chatEnabled);
                     m_httpServer->setShares(shares);
                 },
                 Qt::BlockingQueuedConnection);

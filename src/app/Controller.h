@@ -58,6 +58,7 @@ public slots:
     void setShareAllowDelete(const QString &id, bool allowDelete);
     void setShareAllowCreateDirectory(const QString &id, bool allowCreateDirectory);
     void setExternalLinkSettings(bool enabled);
+    void setChatEnabled(bool enabled);
     void saveSharesSnapshot();
 
     bool exportShares(const QString &filePath) const;

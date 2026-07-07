@@ -32,9 +32,10 @@ struct AppSettings {
     QString updateFrequency = QStringLiteral("每週");
     QString logoPath;
     bool externalLinkEnabled = false;
+    bool chatEnabled = true;
     QString instanceId;
-    int windowWidth = 1080;
-    int windowHeight = 620;
+    int windowWidth = 1360;
+    int windowHeight = 820;
     bool windowMaximized = false;
     bool minimizeToTrayOnClose = true;
     bool launchOnStartup = false;
