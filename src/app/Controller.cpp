@@ -125,6 +125,8 @@ Controller::Controller(QObject *parent)
     , m_qrCodeGenerator(this)
     , m_externalApi(new QNetworkAccessManager(this))
 {
+    qRegisterMetaType<QList<ActiveTransferInfo>>("QList<ActiveTransferInfo>");
+
     m_httpServer = new HttpFileServer();
     m_httpServer->moveToThread(&m_httpServerThread);
     connect(&m_httpServerThread, &QThread::finished, m_httpServer, &QObject::deleteLater);
@@ -153,6 +155,13 @@ Controller::Controller(QObject *parent)
     connect(m_httpServer, &HttpFileServer::statusMessageChanged, this, &Controller::pushStatus);
     connect(m_httpServer, &HttpFileServer::activityEvent, this, &Controller::appendActivity);
     connect(m_httpServer, &HttpFileServer::downloadRecorded, this, &Controller::appendDownloadRecord);
+    connect(m_httpServer,
+            &HttpFileServer::activeTransfersChanged,
+            this,
+            [this](const QList<ActiveTransferInfo> &transfers) {
+                m_activeTransfers = transfers;
+                emit activeTransfersChanged();
+            });
     connect(m_httpServer,
             &HttpFileServer::statsChanged,
             this,
@@ -264,6 +273,11 @@ const QList<ShareItem> &Controller::shares() const
 const QList<DownloadRecord> &Controller::downloads() const
 {
     return m_downloads;
+}
+
+const QList<ActiveTransferInfo> &Controller::activeTransfers() const
+{
+    return m_activeTransfers;
 }
 
 const AppSettings &Controller::settings() const
@@ -511,6 +525,29 @@ void Controller::setShareEnabled(const QString &id, bool enabled)
     }
 }
 
+void Controller::setShareName(const QString &id, const QString &name)
+{
+    const QString trimmedName = name.trimmed();
+    if (trimmedName.isEmpty()) {
+        return;
+    }
+
+    for (ShareItem &share : m_shares) {
+        if (share.id != id || share.name == trimmedName) {
+            continue;
+        }
+
+        const QString previousName = share.name;
+        share.name = trimmedName;
+        persistAll();
+        reloadServerConfiguration();
+        emit sharesChanged();
+        emit urlsChanged();
+        appendActivity(QStringLiteral("分享名稱已更新：%1 → %2").arg(previousName, trimmedName));
+        return;
+    }
+}
+
 void Controller::setShareAllowUpload(const QString &id, bool allowUpload)
 {
     for (ShareItem &share : m_shares) {
@@ -693,6 +730,7 @@ void Controller::saveSystemSettings(const AppSettings &settings)
     m_settings.windowMaximized = settings.windowMaximized;
     m_settings.minimizeToTrayOnClose = settings.minimizeToTrayOnClose;
     m_settings.launchOnStartup = settings.launchOnStartup;
+    m_settings.startServerOnLaunch = settings.launchOnStartup ? true : settings.startServerOnLaunch;
     m_settings.clearSharesOnExit = false;
     m_settings.cloudflaredPath = settings.cloudflaredPath;
     m_settings.download = settings.download;

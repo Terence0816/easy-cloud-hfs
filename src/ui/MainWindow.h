@@ -1,9 +1,11 @@
 ﻿#pragma once
 
+#include <QHash>
 #include <QMainWindow>
 
 class Controller;
 class QCloseEvent;
+class QFrame;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -13,6 +15,7 @@ class QVBoxLayout;
 class QCheckBox;
 class QSpinBox;
 class QComboBox;
+class QProgressBar;
 class QSystemTrayIcon;
 class QMenu;
 
@@ -28,6 +31,14 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
+    struct ActiveTransferRowWidgets {
+        QFrame *row = nullptr;
+        QLabel *name = nullptr;
+        QLabel *status = nullptr;
+        QProgressBar *progress = nullptr;
+        QLabel *detail = nullptr;
+    };
+
     enum PageIndex {
         DashboardPage = 0,
         SharesPage,
@@ -43,6 +54,7 @@ private:
     void refreshAll();
     void refreshStats();
     void refreshActivityLog();
+    void refreshActiveTransfers();
     void refreshFooter();
     void refreshShares();
     void refreshSettingsForms();
@@ -52,6 +64,7 @@ private:
     void updateExternalLinkUiState();
     void updateStatusVisuals(const QString &status);
     void showShareMenu();
+    void showShareEditor(const struct ShareItem &share);
     void rebuildShareList();
     void saveSystemSettingsFromForm();
     void restoreWindowSettings();
@@ -76,6 +89,7 @@ private:
     QLabel *m_pageSubtitle = nullptr;
     QLabel *m_brandSubtitle = nullptr;
     QLabel *m_statusDot = nullptr;
+    QPushButton *m_openWebButton = nullptr;
     QPushButton *m_startStopButton = nullptr;
 
     QLabel *m_statusText = nullptr;
@@ -102,6 +116,11 @@ private:
     QLabel *m_activeConnectionsValue = nullptr;
     QLabel *m_serverInfoLabel = nullptr;
     QLabel *m_lblServerInfoTitle = nullptr;
+    QLabel *m_lblActiveTransfersTitle = nullptr;
+    QWidget *m_activeTransfersContainer = nullptr;
+    QVBoxLayout *m_activeTransfersLayout = nullptr;
+    QLabel *m_activeTransfersEmptyLabel = nullptr;
+    QHash<QString, ActiveTransferRowWidgets> m_activeTransferRows;
 
     // Share page controls
     QWidget *m_sharePage = nullptr;
@@ -136,6 +155,7 @@ private:
     QCheckBox *m_resumeCheck = nullptr;
     QCheckBox *m_closeToTrayCheck = nullptr;
     QCheckBox *m_launchOnStartupCheck = nullptr;
+    QCheckBox *m_startServerOnLaunchCheck = nullptr;
 
     QLabel *m_lblAboutTitle = nullptr;
     QLabel *m_aboutLabel = nullptr;

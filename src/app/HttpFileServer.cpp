@@ -4,6 +4,7 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QHostAddress>
@@ -14,12 +15,15 @@
 #include <QNetworkInterface>
 #include <QPair>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QUrl>
 #include <QUrlQuery>
 
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <memory>
 
 namespace {
@@ -46,6 +50,8 @@ QByteArray statusTextFor(int code)
         return QByteArrayLiteral("Forbidden");
     case 404:
         return QByteArrayLiteral("Not Found");
+    case 409:
+        return QByteArrayLiteral("Conflict");
     case 416:
         return QByteArrayLiteral("Range Not Satisfiable");
     default:
@@ -245,6 +251,200 @@ bool removeFileSystemEntry(const QString &path)
     return QFile::remove(path);
 }
 
+void appendLe16(QByteArray &target, quint16 value)
+{
+    target.append(static_cast<char>(value & 0xff));
+    target.append(static_cast<char>((value >> 8) & 0xff));
+}
+
+void appendLe32(QByteArray &target, quint32 value)
+{
+    target.append(static_cast<char>(value & 0xff));
+    target.append(static_cast<char>((value >> 8) & 0xff));
+    target.append(static_cast<char>((value >> 16) & 0xff));
+    target.append(static_cast<char>((value >> 24) & 0xff));
+}
+
+quint16 zipDosTime(const QDateTime &dateTime)
+{
+    const QTime time = dateTime.time();
+    return static_cast<quint16>(((time.hour() & 0x1f) << 11)
+                                | ((time.minute() & 0x3f) << 5)
+                                | ((time.second() / 2) & 0x1f));
+}
+
+quint16 zipDosDate(const QDateTime &dateTime)
+{
+    const QDate date = dateTime.date();
+    const int year = qBound(1980, date.year(), 2107);
+    return static_cast<quint16>(((year - 1980) << 9)
+                                | ((date.month() & 0x0f) << 5)
+                                | (date.day() & 0x1f));
+}
+
+quint32 updateZipCrc32(quint32 crc, const QByteArray &data)
+{
+    static const std::array<quint32, 256> table = []() {
+        std::array<quint32, 256> values{};
+        for (quint32 index = 0; index < values.size(); ++index) {
+            quint32 current = index;
+            for (int bit = 0; bit < 8; ++bit) {
+                current = (current & 1u) ? (0xedb88320u ^ (current >> 1)) : (current >> 1);
+            }
+            values[index] = current;
+        }
+        return values;
+    }();
+
+    for (const unsigned char byte : data) {
+        crc = table[(crc ^ byte) & 0xffu] ^ (crc >> 8);
+    }
+    return crc;
+}
+
+bool writeAll(QFile *file, const QByteArray &data)
+{
+    return file && file->write(data) == data.size();
+}
+
+QString safeArchiveName(QString name)
+{
+    name = name.trimmed();
+    name.replace(QRegularExpression(QStringLiteral(R"([<>:"/\\|?*\x00-\x1f])")), QStringLiteral("_"));
+    while (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' '))) {
+        name.chop(1);
+    }
+    if (name.isEmpty()) {
+        name = QStringLiteral("download");
+    }
+    return name.left(120);
+}
+
+QString archiveTempRoot()
+{
+    QString root = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    if (root.isEmpty()) {
+        root = QDir::tempPath();
+    }
+    root = QDir(root).filePath(QStringLiteral("EasyCloudHFS/archives"));
+    QDir().mkpath(root);
+    return root;
+}
+
+
+QString archiveUiStyles()
+{
+    return QStringLiteral(R"HTML(
+.folder-row{cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;}
+.folder-row:hover{transform:translateY(-1px);border-color:#b7d7f5;box-shadow:0 12px 26px rgba(27,70,139,.1);}
+.archive-download{display:inline-flex;align-items:center;justify-content:center;min-width:112px;padding:10px 16px;border:0;border-radius:14px;background:#f3aa2d;color:#fff;font:inherit;font-weight:800;white-space:nowrap;cursor:pointer;flex:none;box-shadow:0 8px 18px rgba(211,143,24,.22);}
+.archive-download:hover{filter:brightness(1.03);}
+.archive-download:disabled{cursor:wait;opacity:.65;}
+.archive-modal[hidden]{display:none;}
+.archive-modal{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:20px;}
+.archive-backdrop{position:absolute;inset:0;background:rgba(12,24,43,.62);backdrop-filter:blur(5px);}
+.archive-dialog{position:relative;z-index:1;width:min(520px,calc(100vw - 32px));background:#fff;border-radius:24px;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.28);}
+.archive-title{font-size:23px;font-weight:900;color:#163152;word-break:break-all;}
+.archive-detail{margin-top:8px;color:#6d83a6;line-height:1.65;word-break:break-all;}
+.archive-progress{height:16px;margin-top:20px;background:#e7f0fb;border-radius:999px;overflow:hidden;}
+.archive-progress-fill{height:100%;width:0;background:linear-gradient(90deg,#f3aa2d,#1f9df2);border-radius:999px;transition:width .2s ease;}
+.archive-percent{margin-top:10px;text-align:right;color:#244b74;font-size:18px;font-weight:900;}
+.archive-close{display:block;margin:20px 0 0 auto;padding:10px 18px;border:0;border-radius:13px;background:#e8f1fb;color:#244b74;font:inherit;font-weight:800;cursor:pointer;}
+.archive-close:disabled{display:none;}
+@media (max-width:720px){.folder-row{flex-wrap:wrap}.folder-row .row-size{display:none}.folder-row .archive-download{margin-left:auto;min-width:94px;padding:9px 12px}.archive-dialog{padding:20px}.archive-title{font-size:20px}}
+)HTML");
+}
+
+QString archiveUiMarkup()
+{
+    return QStringLiteral(R"HTML(
+<div id='archiveModal' class='archive-modal' hidden aria-hidden='true'>
+<div class='archive-backdrop'></div>
+<div class='archive-dialog' role='dialog' aria-modal='true' aria-labelledby='archiveTitle'>
+<div id='archiveTitle' class='archive-title'>正在準備打包…</div>
+<div id='archiveDetail' class='archive-detail'>正在讀取資料夾內容，請勿關閉此頁面。</div>
+<div class='archive-progress'><div id='archiveProgressFill' class='archive-progress-fill'></div></div>
+<div id='archivePercent' class='archive-percent'>0%</div>
+<button id='archiveClose' type='button' class='archive-close' disabled>關閉</button>
+</div>
+</div>
+)HTML");
+}
+
+QString archiveUiScript()
+{
+    return QStringLiteral(R"HTML(
+<script>
+(()=>{
+const modal=document.getElementById('archiveModal');
+const title=document.getElementById('archiveTitle');
+const detail=document.getElementById('archiveDetail');
+const fill=document.getElementById('archiveProgressFill');
+const percentText=document.getElementById('archivePercent');
+const closeButton=document.getElementById('archiveClose');
+let activeButton=null;
+const delay=(ms)=>new Promise((resolve)=>window.setTimeout(resolve,ms));
+const show=()=>{modal.hidden=false;modal.setAttribute('aria-hidden','false');document.body.style.overflow='hidden';};
+const hide=()=>{modal.hidden=true;modal.setAttribute('aria-hidden','true');document.body.style.overflow='';if(activeButton){activeButton.disabled=false;activeButton.dataset.busy='';activeButton=null;}};
+const update=(value,text)=>{const percent=Math.max(0,Math.min(100,Number(value)||0));fill.style.width=percent+'%';percentText.textContent=percent+'%';if(text){detail.textContent=text;}};
+const parseJson=async(response)=>{const raw=await response.text();try{return JSON.parse(raw);}catch(error){throw new Error(raw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,180)||('HTTP '+response.status));}};
+const fail=(message)=>{title.textContent='打包失敗';detail.textContent=message||'建立壓縮檔時發生錯誤。';fill.style.width='100%';percentText.textContent='!';closeButton.disabled=false;};
+closeButton?.addEventListener('click',hide);
+document.querySelectorAll('.folder-row[data-open]').forEach((row)=>{
+ row.addEventListener('click',(event)=>{
+  if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey){return;}
+  if(event.target.closest('a,button,input,label')){return;}
+  const target=row.dataset.open;
+  if(target){window.location.href=target;}
+ });
+});
+document.querySelectorAll('.file-row[data-download]').forEach((row)=>{
+ row.addEventListener('click',(event)=>{
+  if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey){return;}
+  if(event.target.closest('a,button,input,label')){return;}
+  const target=row.dataset.download;
+  if(!target){return;}
+  const link=document.createElement('a');
+  link.href=target;
+  link.download='';
+  link.style.display='none';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+ });
+});
+document.querySelectorAll('.archive-download').forEach((button)=>{
+ button.addEventListener('click',async(event)=>{
+  event.preventDefault();event.stopPropagation();
+  if(button.dataset.busy==='1'){return;}
+  button.dataset.busy='1';button.disabled=true;activeButton=button;
+  title.textContent='正在準備打包…';detail.textContent='正在讀取資料夾內容，請勿關閉此頁面。';closeButton.disabled=true;update(0);
+  show();
+  try{
+   const startUrl='/__archive/start?share='+encodeURIComponent(button.dataset.share||'')+'&path='+encodeURIComponent(button.dataset.path||'');
+   const start=await parseJson(await fetch(startUrl,{method:'POST',credentials:'same-origin',cache:'no-store'}));
+   if(!start.ok||!start.id){throw new Error(start.message||'無法建立打包工作。');}
+   title.textContent='正在打包 '+(start.name||'資料夾');
+   while(true){
+    await delay(350);
+    const status=await parseJson(await fetch('/__archive/status?id='+encodeURIComponent(start.id),{credentials:'same-origin',cache:'no-store'}));
+    if(status.state==='error'||status.state==='missing'||!status.ok){throw new Error(status.message||'打包工作失敗。');}
+    update(status.percent,'正在建立壓縮檔：'+(status.name||start.name||''));
+    if(status.state==='ready'&&status.downloadUrl){
+     title.textContent='打包完成，開始下載…';update(100,'壓縮檔已完成，瀏覽器將自動開始下載。');
+     const link=document.createElement('a');link.href=status.downloadUrl;link.download=status.name||start.name||'download.zip';link.style.display='none';document.body.appendChild(link);link.click();link.remove();
+     window.setTimeout(hide,1600);
+     return;
+    }
+   }
+  }catch(error){fail(error&&error.message?error.message:String(error));}
+ });
+});
+})();
+</script>
+)HTML");
+}
+
 QByteArray srtToVtt(const QByteArray &source)
 {
     QString text = QString::fromUtf8(source);
@@ -276,8 +476,20 @@ HttpFileServer::HttpFileServer(QObject *parent)
     connect(&m_statsTimer, &QTimer::timeout, this, [this]() {
         m_lastBytesPerSecond = m_windowBytes;
         m_windowBytes = 0;
+        cleanupExpiredArchiveJobs();
         updateStats();
     });
+
+    m_archiveTimer.setParent(this);
+    m_archiveTimer.setInterval(10);
+    connect(&m_archiveTimer, &QTimer::timeout, this, &HttpFileServer::processArchiveJobs);
+
+    m_activeTransfersTimer.setParent(this);
+    // The dashboard only needs a human-readable refresh rate.  Rebuilding or
+    // updating it four times per second while a fast LAN download is running
+    // wastes UI time without making the progress bar look smoother.
+    m_activeTransfersTimer.setInterval(500);
+    connect(&m_activeTransfersTimer, &QTimer::timeout, this, &HttpFileServer::publishActiveTransfers);
 }
 
 HttpFileServer::~HttpFileServer()
@@ -330,6 +542,8 @@ bool HttpFileServer::start(quint16 port)
     m_port = port;
     m_transferTimer.start();
     m_statsTimer.start();
+    m_archiveTimer.start();
+    m_activeTransfersTimer.start();
     emit statusMessageChanged(QStringLiteral("HTTP 伺服器已啟動"));
     updateStats();
     return true;
@@ -361,14 +575,24 @@ void HttpFileServer::stop()
     }
     m_chunkUploads.clear();
 
+    const QStringList archiveJobIds = m_archiveJobs.keys();
+    for (const QString &jobId : archiveJobIds) {
+        cleanupArchiveJob(jobId, true);
+    }
+    m_archiveJobs.clear();
+
     if (m_server->isListening()) {
         m_server->close();
     }
 
     m_transferTimer.stop();
     m_statsTimer.stop();
+    m_archiveTimer.stop();
+    m_activeTransfersTimer.stop();
+    m_transferServicePending = false;
     m_port = 0;
     updateStats();
+    publishActiveTransfers();
 }
 
 bool HttpFileServer::isRunning() const
@@ -487,12 +711,43 @@ void HttpFileServer::handleSocketDisconnected(QTcpSocket *socket)
     updateStats();
 }
 
-void HttpFileServer::handleSocketBytesWritten(QTcpSocket *socket, qint64)
+void HttpFileServer::handleSocketBytesWritten(QTcpSocket *socket, qint64 bytes)
 {
+    Q_UNUSED(bytes)
+
     if (!socket || !m_transfers.contains(socket)) {
         return;
     }
-    serviceTransfers();
+
+    FileTransfer *transfer = m_transfers.value(socket, nullptr);
+    if (!transfer) {
+        return;
+    }
+
+    // Do not calculate progress from QTcpSocket::bytesWritten().  On a very
+    // fast local connection that signal can arrive while write() is still
+    // unwinding, before bytesQueued has been updated, which made the dashboard
+    // stay at 0 B.  It also used to call serviceTransfers() recursively for
+    // almost every small write and could make the whole application stutter.
+    if (transfer->remaining <= 0 && socket->bytesToWrite() <= 0) {
+        finalizeTransfer(socket, true);
+        return;
+    }
+
+    // Rate-limited transfers are serviced by the fixed 50 ms timer so the
+    // per-tick budget remains accurate.  Unlimited transfers refill as soon as
+    // Qt reports free socket-buffer space.
+    if (totalLimitBytesPerSecond() > 0 || perIpLimitBytesPerSecond() > 0) {
+        return;
+    }
+
+    if (!m_transferServicePending) {
+        m_transferServicePending = true;
+        QTimer::singleShot(0, this, [this]() {
+            m_transferServicePending = false;
+            serviceTransfers();
+        });
+    }
 }
 
 void HttpFileServer::processRequest(QTcpSocket *socket, ConnectionState &state)
@@ -634,6 +889,19 @@ void HttpFileServer::processRequest(QTcpSocket *socket, ConnectionState &state)
         m_chatMessages.append(item);
         while (m_chatMessages.size() > 200) m_chatMessages.removeAt(0);
         sendJson(socket, QByteArrayLiteral("{\"ok\":true}"));
+        return;
+    }
+
+    if (path == QStringLiteral("/__archive/start") && state.method == QStringLiteral("POST")) {
+        handleArchiveStart(socket, query);
+        return;
+    }
+    if (path == QStringLiteral("/__archive/status") && state.method == QStringLiteral("GET")) {
+        handleArchiveStatus(socket, query);
+        return;
+    }
+    if (path == QStringLiteral("/__archive/download") && state.method == QStringLiteral("GET")) {
+        handleArchiveDownload(socket, query, headerValue(state.headers, QStringLiteral("range")));
         return;
     }
 
@@ -1126,14 +1394,22 @@ bool HttpFileServer::handleChunkUpload(QTcpSocket *socket,
     const QString basePath = (share->type == ShareType::VirtualDirectory) ? share->storagePath : share->sourcePath;
     const QString safeDirectory = currentRelativePath.isEmpty()
                                       ? basePath
-                                      : canonicalSafePath(basePath, currentRelativePath, false);
-    const QFileInfo targetDirectoryInfo(safeDirectory);
-    if (safeDirectory.isEmpty() || !targetDirectoryInfo.exists() || !targetDirectoryInfo.isDir()) {
+                                      : canonicalSafePath(basePath, currentRelativePath, true);
+    if (safeDirectory.isEmpty()) {
         sendBadRequest(socket, QStringLiteral("上傳目錄無效。"));
         return false;
     }
 
-    QDir().mkpath(safeDirectory);
+    if (!QDir().mkpath(safeDirectory)) {
+        sendBadRequest(socket, QStringLiteral("無法建立上傳目錄。"));
+        return false;
+    }
+
+    const QFileInfo targetDirectoryInfo(safeDirectory);
+    if (!targetDirectoryInfo.exists() || !targetDirectoryInfo.isDir()) {
+        sendBadRequest(socket, QStringLiteral("上傳目錄無效。"));
+        return false;
+    }
 
     ChunkUploadSession session;
     if (!m_chunkUploads.contains(uploadId)) {
@@ -1244,6 +1520,513 @@ bool HttpFileServer::handleChunkUpload(QTcpSocket *socket,
     return true;
 }
 
+void HttpFileServer::handleArchiveStart(QTcpSocket *socket, const QUrlQuery &query)
+{
+    const QString routeSegment = query.queryItemValue(QStringLiteral("share"), QUrl::FullyDecoded).trimmed();
+    QString relativePath = QDir::cleanPath(query.queryItemValue(QStringLiteral("path"), QUrl::FullyDecoded));
+    if (relativePath == QStringLiteral(".")) {
+        relativePath.clear();
+    }
+
+    const ShareItem *share = findShareByRoute(routeSegment);
+    if (!share || !share->enabled
+        || (share->type != ShareType::Directory && share->type != ShareType::VirtualDirectory)) {
+        sendJson(socket, QByteArrayLiteral("{\"ok\":false,\"message\":\"找不到可打包的資料夾分享。\"}"));
+        return;
+    }
+
+    const QString clientAddress = detectClientAddress(socket);
+    int clientJobCount = 0;
+    for (const ArchiveJob *existingJob : m_archiveJobs) {
+        if (existingJob
+            && existingJob->state != QStringLiteral("error")
+            && existingJob->clientAddress == clientAddress) {
+            ++clientJobCount;
+        }
+    }
+    if (m_archiveJobs.size() >= 8 || clientJobCount >= 3) {
+        sendJson(socket, QByteArrayLiteral("{\"ok\":false,\"message\":\"目前打包工作較多，請稍後再試。\"}"));
+        return;
+    }
+
+    const QString baseRoot = share->type == ShareType::VirtualDirectory ? share->storagePath : share->sourcePath;
+    const QString safeSource = relativePath.isEmpty() ? canonicalSafePath(baseRoot, QString(), false)
+                                                      : canonicalSafePath(baseRoot, relativePath, false);
+    const QFileInfo sourceInfo(safeSource);
+    if (safeSource.isEmpty() || !sourceInfo.exists() || !sourceInfo.isDir()) {
+        sendJson(socket, QByteArrayLiteral("{\"ok\":false,\"message\":\"資料夾路徑不存在或已超出分享範圍。\"}"));
+        return;
+    }
+
+    auto *job = new ArchiveJob();
+    job->id = createId();
+    job->shareId = share->id;
+    job->sourcePath = safeSource;
+    job->relativePath = relativePath;
+    job->clientAddress = clientAddress;
+    job->createdAt = QDateTime::currentDateTime();
+
+    const QString sourceDisplayName = relativePath.isEmpty() ? share->name : sourceInfo.fileName();
+    const QString rootEntryName = safeArchiveName(sourceDisplayName);
+    job->archiveName = rootEntryName + QStringLiteral(".zip");
+
+    ArchiveEntry rootEntry;
+    rootEntry.sourcePath = safeSource;
+    rootEntry.archivePath = rootEntryName + QLatin1Char('/');
+    rootEntry.directory = true;
+    rootEntry.dosTime = zipDosTime(sourceInfo.lastModified());
+    rootEntry.dosDate = zipDosDate(sourceInfo.lastModified());
+    job->entries.append(rootEntry);
+
+    QDirIterator iterator(safeSource,
+                          QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                          QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        iterator.next();
+        const QFileInfo info = iterator.fileInfo();
+        if (info.isSymLink()) {
+            continue;
+        }
+        const bool isDirectory = info.isDir();
+        const qint64 fileSize = isDirectory ? 0 : info.size();
+        if (fileSize < 0 || static_cast<quint64>(fileSize) > std::numeric_limits<quint32>::max()) {
+            delete job;
+            sendJson(socket, QByteArrayLiteral("{\"ok\":false,\"message\":\"資料夾內含超過 4GB 的單一檔案，目前無法打包。\"}"));
+            return;
+        }
+
+        QString entryRelative = QDir(safeSource).relativeFilePath(info.absoluteFilePath());
+        entryRelative.replace(QLatin1Char('\\'), QLatin1Char('/'));
+        ArchiveEntry entry;
+        entry.sourcePath = info.absoluteFilePath();
+        entry.archivePath = rootEntryName + QLatin1Char('/') + entryRelative;
+        if (isDirectory && !entry.archivePath.endsWith(QLatin1Char('/'))) {
+            entry.archivePath += QLatin1Char('/');
+        }
+        entry.size = fileSize;
+        entry.directory = isDirectory;
+        entry.dosTime = zipDosTime(info.lastModified());
+        entry.dosDate = zipDosDate(info.lastModified());
+        job->entries.append(entry);
+        job->totalBytes += fileSize;
+
+        if (job->entries.size() > std::numeric_limits<quint16>::max()) {
+            delete job;
+            sendJson(socket, QByteArrayLiteral("{\"ok\":false,\"message\":\"資料夾項目超過 65535 個，目前無法打包。\"}"));
+            return;
+        }
+    }
+
+    const quint64 estimatedSize = static_cast<quint64>(job->totalBytes)
+                                  + static_cast<quint64>(job->entries.size()) * 320u
+                                  + 4096u;
+    if (estimatedSize > std::numeric_limits<quint32>::max()) {
+        delete job;
+        sendJson(socket, QByteArrayLiteral("{\"ok\":false,\"message\":\"資料夾打包後預估超過 4GB，目前無法建立 ZIP。\"}"));
+        return;
+    }
+
+    const QString jobDirectory = QDir(archiveTempRoot()).filePath(job->id);
+    if (!QDir().mkpath(jobDirectory)) {
+        delete job;
+        sendJson(socket, QByteArrayLiteral("{\"ok\":false,\"message\":\"無法建立打包暫存目錄。\"}"));
+        return;
+    }
+    job->outputPath = QDir(jobDirectory).filePath(job->archiveName);
+    job->outputFile = new QFile(job->outputPath, this);
+    if (!job->outputFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        delete job->outputFile;
+        job->outputFile = nullptr;
+        QDir(jobDirectory).removeRecursively();
+        delete job;
+        sendJson(socket, QByteArrayLiteral("{\"ok\":false,\"message\":\"無法建立打包檔案。\"}"));
+        return;
+    }
+
+    m_archiveJobs.insert(job->id, job);
+    emit activityEvent(QStringLiteral("%1 開始打包：%2").arg(job->clientAddress, job->archiveName));
+    publishActiveTransfers();
+
+    QJsonObject response{
+        {QStringLiteral("ok"), true},
+        {QStringLiteral("id"), job->id},
+        {QStringLiteral("name"), job->archiveName},
+    };
+    sendJson(socket, QJsonDocument(response).toJson(QJsonDocument::Compact));
+}
+
+void HttpFileServer::handleArchiveStatus(QTcpSocket *socket, const QUrlQuery &query)
+{
+    const QString jobId = query.queryItemValue(QStringLiteral("id"), QUrl::FullyDecoded).trimmed();
+    ArchiveJob *job = m_archiveJobs.value(jobId, nullptr);
+    if (!job) {
+        const QJsonObject response{
+            {QStringLiteral("ok"), false},
+            {QStringLiteral("state"), QStringLiteral("missing")},
+            {QStringLiteral("message"), QStringLiteral("打包工作已不存在，請重新操作。")},
+        };
+        sendJson(socket, QJsonDocument(response).toJson(QJsonDocument::Compact));
+        return;
+    }
+
+    int percent = 0;
+    if (job->state == QStringLiteral("ready") || job->state == QStringLiteral("downloading")) {
+        percent = 100;
+    } else if (job->totalBytes > 0) {
+        percent = qBound(0, static_cast<int>((job->processedBytes * 100) / job->totalBytes), 99);
+    }
+
+    QJsonObject response{
+        {QStringLiteral("ok"), job->state != QStringLiteral("error")},
+        {QStringLiteral("state"), job->state},
+        {QStringLiteral("name"), job->archiveName},
+        {QStringLiteral("percent"), percent},
+        {QStringLiteral("processed"), QString::number(job->processedBytes)},
+        {QStringLiteral("total"), QString::number(job->totalBytes)},
+        {QStringLiteral("message"), job->errorMessage},
+    };
+    if (job->state == QStringLiteral("ready")) {
+        response.insert(QStringLiteral("downloadUrl"), QStringLiteral("/__archive/download?id=%1").arg(urlEncode(job->id)));
+    }
+    sendJson(socket, QJsonDocument(response).toJson(QJsonDocument::Compact));
+}
+
+void HttpFileServer::handleArchiveDownload(QTcpSocket *socket,
+                                           const QUrlQuery &query,
+                                           const QString &rangeHeader)
+{
+    const QString jobId = query.queryItemValue(QStringLiteral("id"), QUrl::FullyDecoded).trimmed();
+    ArchiveJob *job = m_archiveJobs.value(jobId, nullptr);
+    if (!job || job->state != QStringLiteral("ready") || !QFileInfo::exists(job->outputPath)) {
+        sendResponse(socket,
+                     409,
+                     statusTextFor(409),
+                     renderMessagePage(QStringLiteral("打包檔案尚未完成"),
+                                       QStringLiteral("請返回原頁面重新執行打包下載。")),
+                     QByteArrayLiteral("text/html; charset=utf-8"));
+        return;
+    }
+
+    job->state = QStringLiteral("downloading");
+    publishActiveTransfers();
+
+    ShareItem archiveShare;
+    archiveShare.id = job->shareId;
+    archiveShare.name = job->archiveName;
+    archiveShare.type = ShareType::File;
+    sendFile(socket,
+             archiveShare,
+             job->outputPath,
+             job->archiveName,
+             rangeHeader,
+             true,
+             false,
+             job->id);
+}
+
+void HttpFileServer::processArchiveJobs()
+{
+    const QList<ArchiveJob *> jobs = m_archiveJobs.values();
+    for (ArchiveJob *job : jobs) {
+        if (!job || job->state != QStringLiteral("packaging") || !job->outputFile) {
+            continue;
+        }
+
+        if (job->currentIndex >= job->entries.size()) {
+            finishArchiveJob(job);
+            continue;
+        }
+
+        ArchiveEntry &entry = job->entries[job->currentIndex];
+        if (!job->inputFile && job->currentEntryBytes == 0) {
+            if (job->outputFile->pos() < 0
+                || static_cast<quint64>(job->outputFile->pos()) > std::numeric_limits<quint32>::max()) {
+                failArchiveJob(job, QStringLiteral("ZIP 檔案位置超過 4GB 限制。"));
+                continue;
+            }
+
+            entry.localHeaderOffset = static_cast<quint32>(job->outputFile->pos());
+            const QByteArray nameBytes = entry.archivePath.toUtf8();
+            if (nameBytes.size() > std::numeric_limits<quint16>::max()) {
+                failArchiveJob(job, QStringLiteral("資料夾內有過長的檔名，無法寫入 ZIP。"));
+                continue;
+            }
+
+            QByteArray header;
+            appendLe32(header, 0x04034b50u);
+            appendLe16(header, 20);
+            appendLe16(header, 0x0808);
+            appendLe16(header, 0);
+            appendLe16(header, entry.dosTime);
+            appendLe16(header, entry.dosDate);
+            appendLe32(header, 0);
+            appendLe32(header, 0);
+            appendLe32(header, 0);
+            appendLe16(header, static_cast<quint16>(nameBytes.size()));
+            appendLe16(header, 0);
+            header += nameBytes;
+            if (!writeAll(job->outputFile, header)) {
+                failArchiveJob(job, QStringLiteral("寫入 ZIP 標頭失敗。"));
+                continue;
+            }
+
+            job->currentCrc = 0xffffffffu;
+            if (entry.directory) {
+                finishArchiveEntry(job);
+                continue;
+            }
+
+            job->inputFile = new QFile(entry.sourcePath, this);
+            if (!job->inputFile->open(QIODevice::ReadOnly)) {
+                failArchiveJob(job, QStringLiteral("無法讀取檔案：%1").arg(entry.archivePath));
+                continue;
+            }
+        }
+
+        if (!job->inputFile) {
+            continue;
+        }
+
+        const QByteArray chunk = job->inputFile->read(512 * 1024);
+        if (chunk.isEmpty()) {
+            if (job->inputFile->error() != QFile::NoError || job->currentEntryBytes != entry.size) {
+                failArchiveJob(job, QStringLiteral("讀取檔案失敗：%1").arg(entry.archivePath));
+            } else {
+                finishArchiveEntry(job);
+            }
+            continue;
+        }
+
+        if (!writeAll(job->outputFile, chunk)) {
+            failArchiveJob(job, QStringLiteral("寫入 ZIP 內容失敗。"));
+            continue;
+        }
+        job->currentCrc = updateZipCrc32(job->currentCrc, chunk);
+        job->currentEntryBytes += chunk.size();
+        job->processedBytes += chunk.size();
+
+        if (job->currentEntryBytes >= entry.size) {
+            finishArchiveEntry(job);
+        }
+    }
+}
+
+void HttpFileServer::finishArchiveEntry(ArchiveJob *job)
+{
+    if (!job || job->currentIndex < 0 || job->currentIndex >= job->entries.size()) {
+        return;
+    }
+
+    ArchiveEntry &entry = job->entries[job->currentIndex];
+    if (job->inputFile) {
+        job->inputFile->close();
+        job->inputFile->deleteLater();
+        job->inputFile = nullptr;
+    }
+
+    if (job->currentEntryBytes != entry.size) {
+        failArchiveJob(job, QStringLiteral("檔案大小在打包過程中發生變化：%1").arg(entry.archivePath));
+        return;
+    }
+
+    entry.crc32 = job->currentCrc ^ 0xffffffffu;
+    QByteArray descriptor;
+    appendLe32(descriptor, 0x08074b50u);
+    appendLe32(descriptor, entry.crc32);
+    appendLe32(descriptor, static_cast<quint32>(entry.size));
+    appendLe32(descriptor, static_cast<quint32>(entry.size));
+    if (!writeAll(job->outputFile, descriptor)) {
+        failArchiveJob(job, QStringLiteral("寫入 ZIP 檔案資訊失敗。"));
+        return;
+    }
+
+    ++job->currentIndex;
+    job->currentEntryBytes = 0;
+    job->currentCrc = 0xffffffffu;
+    if (job->currentIndex >= job->entries.size()) {
+        finishArchiveJob(job);
+    }
+}
+
+void HttpFileServer::finishArchiveJob(ArchiveJob *job)
+{
+    if (!job || job->state != QStringLiteral("packaging") || !job->outputFile) {
+        return;
+    }
+
+    const qint64 centralOffset64 = job->outputFile->pos();
+    if (centralOffset64 < 0 || static_cast<quint64>(centralOffset64) > std::numeric_limits<quint32>::max()) {
+        failArchiveJob(job, QStringLiteral("ZIP 中央目錄位置超過 4GB 限制。"));
+        return;
+    }
+    const quint32 centralOffset = static_cast<quint32>(centralOffset64);
+
+    for (const ArchiveEntry &entry : job->entries) {
+        const QByteArray nameBytes = entry.archivePath.toUtf8();
+        QByteArray central;
+        appendLe32(central, 0x02014b50u);
+        appendLe16(central, 20);
+        appendLe16(central, 20);
+        appendLe16(central, 0x0808);
+        appendLe16(central, 0);
+        appendLe16(central, entry.dosTime);
+        appendLe16(central, entry.dosDate);
+        appendLe32(central, entry.crc32);
+        appendLe32(central, static_cast<quint32>(entry.size));
+        appendLe32(central, static_cast<quint32>(entry.size));
+        appendLe16(central, static_cast<quint16>(nameBytes.size()));
+        appendLe16(central, 0);
+        appendLe16(central, 0);
+        appendLe16(central, 0);
+        appendLe16(central, 0);
+        appendLe32(central, entry.directory ? 0x10u : 0u);
+        appendLe32(central, entry.localHeaderOffset);
+        central += nameBytes;
+        if (!writeAll(job->outputFile, central)) {
+            failArchiveJob(job, QStringLiteral("寫入 ZIP 中央目錄失敗。"));
+            return;
+        }
+    }
+
+    const qint64 centralEnd64 = job->outputFile->pos();
+    const qint64 centralSize64 = centralEnd64 - centralOffset64;
+    if (centralSize64 < 0 || static_cast<quint64>(centralSize64) > std::numeric_limits<quint32>::max()) {
+        failArchiveJob(job, QStringLiteral("ZIP 中央目錄超過 4GB 限制。"));
+        return;
+    }
+
+    QByteArray endRecord;
+    appendLe32(endRecord, 0x06054b50u);
+    appendLe16(endRecord, 0);
+    appendLe16(endRecord, 0);
+    appendLe16(endRecord, static_cast<quint16>(job->entries.size()));
+    appendLe16(endRecord, static_cast<quint16>(job->entries.size()));
+    appendLe32(endRecord, static_cast<quint32>(centralSize64));
+    appendLe32(endRecord, centralOffset);
+    appendLe16(endRecord, 0);
+    if (!writeAll(job->outputFile, endRecord) || !job->outputFile->flush()) {
+        failArchiveJob(job, QStringLiteral("完成 ZIP 檔案時寫入失敗。"));
+        return;
+    }
+
+    job->outputFile->close();
+    job->state = QStringLiteral("ready");
+    job->processedBytes = job->totalBytes;
+    job->finishedAt = QDateTime::currentDateTime();
+    emit activityEvent(QStringLiteral("%1 打包完成：%2（%3）")
+                           .arg(job->clientAddress, job->archiveName, humanReadableSize(QFileInfo(job->outputPath).size())));
+    publishActiveTransfers();
+}
+
+void HttpFileServer::failArchiveJob(ArchiveJob *job, const QString &message)
+{
+    if (!job) {
+        return;
+    }
+    if (job->inputFile) {
+        job->inputFile->close();
+        job->inputFile->deleteLater();
+        job->inputFile = nullptr;
+    }
+    if (job->outputFile) {
+        job->outputFile->close();
+    }
+    QFile::remove(job->outputPath);
+    job->state = QStringLiteral("error");
+    job->errorMessage = message;
+    job->finishedAt = QDateTime::currentDateTime();
+    emit activityEvent(QStringLiteral("%1 打包失敗：%2（%3）")
+                           .arg(job->clientAddress, job->archiveName, message));
+    publishActiveTransfers();
+}
+
+void HttpFileServer::cleanupArchiveJob(const QString &jobId, bool removeOutputFile)
+{
+    ArchiveJob *job = m_archiveJobs.take(jobId);
+    if (!job) {
+        return;
+    }
+    if (job->inputFile) {
+        job->inputFile->close();
+        delete job->inputFile;
+        job->inputFile = nullptr;
+    }
+    if (job->outputFile) {
+        job->outputFile->close();
+        delete job->outputFile;
+        job->outputFile = nullptr;
+    }
+    if (removeOutputFile && !job->outputPath.isEmpty()) {
+        QFile::remove(job->outputPath);
+        QDir(QFileInfo(job->outputPath).absolutePath()).removeRecursively();
+    }
+    delete job;
+    publishActiveTransfers();
+}
+
+void HttpFileServer::cleanupExpiredArchiveJobs()
+{
+    const QDateTime now = QDateTime::currentDateTime();
+    const QStringList jobIds = m_archiveJobs.keys();
+    for (const QString &jobId : jobIds) {
+        ArchiveJob *job = m_archiveJobs.value(jobId, nullptr);
+        if (!job) {
+            continue;
+        }
+        if (job->state == QStringLiteral("packaging") && job->createdAt.secsTo(now) > 30 * 60) {
+            failArchiveJob(job, QStringLiteral("打包工作逾時。"));
+        }
+        if (job->state != QStringLiteral("packaging")
+            && job->finishedAt.isValid()
+            && job->finishedAt.secsTo(now) > 15 * 60) {
+            cleanupArchiveJob(jobId, true);
+        }
+    }
+}
+
+QList<ActiveTransferInfo> HttpFileServer::activeTransferSnapshot() const
+{
+    QList<ActiveTransferInfo> result;
+    const QList<FileTransfer *> transfers = m_transfers.values();
+    for (const FileTransfer *transfer : transfers) {
+        if (!transfer || !transfer->trackAsDownload) {
+            continue;
+        }
+        ActiveTransferInfo info;
+        info.id = transfer->socketKey;
+        info.fileName = transfer->fileName;
+        info.relativePath = transfer->relativePath;
+        info.clientAddress = transfer->clientAddress;
+        info.status = QStringLiteral("downloading");
+        info.bytesProcessed = transfer->bytesQueued;
+        info.totalBytes = transfer->totalBytes;
+        result.append(info);
+    }
+
+    const QList<ArchiveJob *> jobs = m_archiveJobs.values();
+    for (const ArchiveJob *job : jobs) {
+        if (!job || job->state != QStringLiteral("packaging")) {
+            continue;
+        }
+        ActiveTransferInfo info;
+        info.id = job->id;
+        info.fileName = job->archiveName;
+        info.relativePath = job->relativePath;
+        info.clientAddress = job->clientAddress;
+        info.status = QStringLiteral("packaging");
+        info.bytesProcessed = job->processedBytes;
+        info.totalBytes = job->totalBytes;
+        result.append(info);
+    }
+    return result;
+}
+
+void HttpFileServer::publishActiveTransfers()
+{
+    emit activeTransfersChanged(activeTransferSnapshot());
+}
+
+
 void HttpFileServer::sendResponse(QTcpSocket *socket,
                                   int statusCode,
                                   const QByteArray &statusText,
@@ -1351,7 +2134,8 @@ void HttpFileServer::sendFile(QTcpSocket *socket,
                               const QString &relativePath,
                               const QString &rangeHeader,
                               bool trackAsDownload,
-                              bool inlineDisposition)
+                              bool inlineDisposition,
+                              const QString &cleanupArchiveJobId)
 {
     if (!socket) {
         return;
@@ -1428,8 +2212,6 @@ void HttpFileServer::sendFile(QTcpSocket *socket,
     }
     headers += QByteArrayLiteral("\r\n");
 
-    socket->write(headers);
-
     auto *transfer = new FileTransfer{
         socket,
         QString::number(reinterpret_cast<quintptr>(socket)),
@@ -1441,11 +2223,21 @@ void HttpFileServer::sendFile(QTcpSocket *socket,
         start,
         end,
         contentLength,
+        contentLength,
         0,
         true,
         trackAsDownload,
+        cleanupArchiveJobId,
     };
     m_transfers.insert(socket, transfer);
+
+    const qint64 queuedHeaderBytes = socket->write(headers);
+    if (queuedHeaderBytes != headers.size()) {
+        finalizeTransfer(socket, false);
+        return;
+    }
+
+    publishActiveTransfers();
     if (trackAsDownload) {
         emit activityEvent(QStringLiteral("%1 開始下載：%2").arg(transfer->clientAddress, transfer->fileName));
     }
@@ -1616,12 +2408,14 @@ QByteArray HttpFileServer::renderHomePage() const
                         "<div class='row-note'>圖片預覽</div>"
                         "</div>"
                         "</a>"
-                        "<a class='row-download' href='%5' download>直接下載</a>"
+                        "<div class='row-size'>%5</div>"
+                        "<a class='row-download' href='%6' download>直接下載</a>"
                         "</div>")
                         .arg(escapeHtml(viewerHref),
                              escapeHtml(previewHref),
                              escapeHtml(share.name),
                              escapeHtml(share.name),
+                             escapeHtml(humanReadableSize(share.pinnedSize)),
                              escapeHtml(href));
             continue;
         }
@@ -1643,13 +2437,15 @@ QByteArray HttpFileServer::renderHomePage() const
                         "<div class='row-note'>%5</div>"
                         "</div>"
                         "</a>"
-                        "<a class='row-download' href='%6' download>直接下載</a>"
+                        "<div class='row-size'>%6</div>"
+                        "<a class='row-download' href='%7' download>直接下載</a>"
                         "</div>")
                         .arg(escapeHtml(viewerHref),
                              iconClass,
                              iconText,
                              escapeHtml(share.name),
                              noteText,
+                             escapeHtml(humanReadableSize(share.pinnedSize)),
                              escapeHtml(href));
             continue;
         }
@@ -1657,21 +2453,46 @@ QByteArray HttpFileServer::renderHomePage() const
         const QString iconClass = isFolder ? QStringLiteral("icon folder") : QStringLiteral("icon file");
         const QString iconText = isFolder ? QStringLiteral("D") : QStringLiteral("F");
 
+        if (isFolder) {
+            const QString folderHref = routeForShare(share);
+            rows += QStringLiteral(
+                        "<div class='row folder-row' data-open='%1'>"
+                        "<a class='row-main-link' href='%1'>"
+                        "<div class='%2'>%3</div>"
+                        "<div class='row-main'>"
+                        "<div class='row-name'>%4</div>"
+                        "<div class='row-note'>點擊整列進入資料夾</div>"
+                        "</div>"
+                        "</a>"
+                        "<div class='row-size'>%5</div>"
+                        "<button type='button' class='archive-download' data-share='%6' data-path=''>打包下載</button>"
+                        "</div>")
+                        .arg(escapeHtml(folderHref),
+                             iconClass,
+                             iconText,
+                             escapeHtml(share.name),
+                             escapeHtml(infoText),
+                             escapeHtml(share.routeSegment));
+            continue;
+        }
+
+        const QString fileHref = routeForShare(share);
         rows += QStringLiteral(
-                    "<a class='row' href='%1'>"
+                    "<div class='row file-row' data-download='%1'>"
+                    "<a class='row-main-link' href='%1' download>"
                     "<div class='%2'>%3</div>"
                     "<div class='row-main'>"
                     "<div class='row-name'>%4</div>"
-                    "<div class='row-note'>%5</div>"
+                    "<div class='row-note'>檔案</div>"
                     "</div>"
-                    "<div class='row-size'>%6</div>"
-                    "</a>")
-                    .arg(routeForShare(share),
+                    "</a>"
+                    "<div class='row-size'>%5</div>"
+                    "<a class='row-download' href='%1' download>直接下載</a>"
+                    "</div>")
+                    .arg(escapeHtml(fileHref),
                          iconClass,
                          iconText,
                          escapeHtml(share.name),
-                         isFolder ? webTx(QStringLiteral("資料夾"), QStringLiteral("Folder"))
-                                  : webTx(QStringLiteral("檔案"), QStringLiteral("File")),
                          escapeHtml(infoText));
     }
 
@@ -1787,7 +2608,7 @@ QByteArray HttpFileServer::renderHomePage() const
                              .arg(galleryJson);
     }
 
-    const QString html = QStringLiteral(
+    QString html = QStringLiteral(
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         "<title>%1</title>"
@@ -1801,14 +2622,14 @@ QByteArray HttpFileServer::renderHomePage() const
         ".list{display:grid;gap:14px;margin-top:24px;}"
         ".row{display:flex;align-items:center;gap:16px;text-decoration:none;color:#163152;background:#fff;border-radius:20px;padding:18px 20px;box-shadow:0 10px 24px rgba(27,70,139,.08);}"
         ".row:hover{transform:translateY(-1px);}"
-        ".icon{width:54px;height:54px;display:flex;align-items:center;justify-content:center;border-radius:16px;font-size:22px;font-weight:800;flex:none;}"
+        ".icon{width:54px;height:54px;display:flex;align-items:center;justify-content:center;border:0!important;outline:0!important;box-shadow:none!important;border-radius:16px;font-size:22px;font-weight:800;flex:none;}"
         ".icon.folder{background:#fff2c9;color:#d79b00;}"
         ".icon.file{background:#dff1ff;color:#1f9df2;}"
         ".icon.audio{background:#eaf7ec;color:#2d9b52;}"
         ".icon.video{background:#ffe8e3;color:#d96445;}"
         ".thumb{width:54px;height:54px;object-fit:cover;border-radius:16px;flex:none;background:#dff1ff;border:1px solid #dbe6f5;}"
-        ".image-row{cursor:default;justify-content:space-between;}"
-        ".row-main-link{display:flex;align-items:center;gap:16px;min-width:0;flex:1;text-decoration:none;color:#163152;}"
+        ".image-row{cursor:default;justify-content:space-between;}.file-row{cursor:pointer;}"
+        ".row-main-link{display:flex;align-items:center;gap:16px;min-width:0;flex:1;text-decoration:none;color:#163152;outline:0;box-shadow:none;}"
         ".row-main{min-width:0;flex:1;}"
         ".row-name{font-size:22px;font-weight:800;word-break:break-word;}"
         ".row-note{margin-top:6px;color:#6d83a6;}"
@@ -1833,6 +2654,8 @@ QByteArray HttpFileServer::renderHomePage() const
         ".row-main-link{align-items:flex-start;}"
         ".row-size{padding-top:4px;}"
         ".row-download{min-width:96px;padding:10px 14px;}"
+        ".file-row,.image-row,.media-row{flex-wrap:wrap;}"
+        ".file-row .row-size,.image-row .row-size,.media-row .row-size{margin-left:auto;}"
         ".thumb,.icon{width:48px;height:48px;border-radius:14px;}"
         ".gallery-shell{width:94vw;height:84vh;grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto;gap:12px;margin:5vh auto 0;}"
         ".gallery-stage{grid-column:1;padding:12px;}"
@@ -1845,6 +2668,8 @@ QByteArray HttpFileServer::renderHomePage() const
         "</style></head>"
         "<body><div class='wrap'><div class='hero'><img src='/__logo'><div><h1 class='title'>%1</h1><div class='sub'>%2</div></div></div><div class='list'>%3</div>%4</div></body></html>")
                              .arg(escapeHtml(m_siteName), hint, rows, galleryBlock);
+    html.replace(QStringLiteral("</style>"), archiveUiStyles() + QStringLiteral("</style>"));
+    html.replace(QStringLiteral("</body>"), archiveUiMarkup() + archiveUiScript() + QStringLiteral("</body>"));
     return localizeWebHtml(html).toUtf8();
 }
 
@@ -1969,13 +2794,15 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                              "<div class='row-note'>圖片預覽</div>"
                              "</div>"
                              "</a>"
+                             "<div class='row-size'>%6</div>"
                              "<a class='row-download' href='%2' download onclick='event.stopPropagation()'>直接下載</a>"
                              "</div>")
                              .arg(escapeHtml(childRelative),
                                   escapeHtml(href),
                                   escapeHtml(entry.fileName()),
                                   escapeHtml(viewerHref),
-                                  escapeHtml(previewHref));
+                                  escapeHtml(previewHref),
+                                  escapeHtml(humanReadableSize(entry.size())));
             continue;
         }
 
@@ -1997,6 +2824,7 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                              "<div class='row-note'>%7</div>"
                              "</div>"
                              "</a>"
+                             "<div class='row-size'>%8</div>"
                              "<a class='row-download' href='%2' download onclick='event.stopPropagation()'>直接下載</a>"
                              "</div>")
                              .arg(escapeHtml(childRelative),
@@ -2005,33 +2833,36 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                                   escapeHtml(viewerHref),
                                   iconClass,
                                   iconText,
-                                  noteText);
+                                  noteText,
+                                  escapeHtml(humanReadableSize(entry.size())));
             continue;
         }
 
         if (isDirectory) {
             itemsHtml += QStringLiteral(
-                             "<div class='row selectable-row' data-kind='directory' data-path='%1'>"
+                             "<div class='row selectable-row folder-row' data-kind='directory' data-path='%1' data-open='%3'>"
                              "<div class='row-select'><input class='row-check' type='checkbox' aria-label='選取 %2'></div>"
                              "<a class='row-main-link' href='%3'>"
                              "<div class='icon folder'>D</div>"
                              "<div class='row-main'>"
                              "<div class='row-name'>%2</div>"
-                             "<div class='row-note'>資料夾</div>"
+                             "<div class='row-note'>點擊整列進入資料夾</div>"
                              "</div>"
                              "</a>"
-                             "<div class='row-size'>資料夾</div>"
+                             "<div class='row-size'>進入資料夾</div>"
+                             "<button type='button' class='archive-download' data-share='%4' data-path='%1'>打包下載</button>"
                              "</div>")
                              .arg(escapeHtml(childRelative),
                                   escapeHtml(entry.fileName()),
-                                  escapeHtml(navigableHref));
+                                  escapeHtml(navigableHref),
+                                  escapeHtml(share.routeSegment));
             continue;
         }
 
         itemsHtml += QStringLiteral(
-                         "<div class='row selectable-row' data-kind='file' data-path='%1' data-download='%2'>"
+                         "<div class='row selectable-row file-row' data-kind='file' data-path='%1' data-download='%2'>"
                          "<div class='row-select'><input class='row-check' type='checkbox' aria-label='選取 %3'></div>"
-                         "<a class='row-main-link' href='%2'>"
+                         "<a class='row-main-link' href='%2' download>"
                          "<div class='icon file'>F</div>"
                          "<div class='row-main'>"
                          "<div class='row-name'>%3</div>"
@@ -2039,6 +2870,7 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                          "</div>"
                          "</a>"
                          "<div class='row-size'>%4</div>"
+                         "<a class='row-download' href='%2' download onclick='event.stopPropagation()'>直接下載</a>"
                          "</div>")
                          .arg(escapeHtml(childRelative),
                               escapeHtml(href),
@@ -2052,161 +2884,416 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
 
     QString uploadBlock;
     if (shareAllowsUpload(share)) {
-        uploadBlock = QStringLiteral(
+        QString uploadConfigJson = QString::fromUtf8(
+            QJsonDocument(QJsonObject{
+                              {QStringLiteral("share"), share.routeSegment},
+                              {QStringLiteral("currentPath"), relativePath},
+                          })
+                .toJson(QJsonDocument::Compact));
+        uploadConfigJson.replace(QStringLiteral("</"), QStringLiteral("<\\/"));
+
+        const QString uploadMarkup = QStringLiteral(
             "<div class='upload-box'>"
-            "<div class='upload-title'>上傳檔案</div>"
-            "<input id='uploader' type='file' multiple>"
-            "<div class='upload-note'>可一次選擇多個檔案，完成後會自動重新整理清單。</div>"
-            "<div id='uploadLog' class='upload-log'></div>"
+            "<div class='upload-title'>上傳區</div>"
+            "<div class='upload-help'>請選擇上傳的檔案或資料夾，或直接拖曳到下方區塊，支援同時上傳多個檔案與資料夾。</div>"
+            "<div class='upload-pickers'>"
+            "<input id='uploadFiles' class='upload-input' type='file' multiple>"
+            "<input id='uploadFolders' class='upload-input' type='file' multiple webkitdirectory directory>"
+            "<label class='upload-picker-btn files' for='uploadFiles'>請選擇上傳的檔案（可同時多檔）</label>"
+            "<label class='upload-picker-btn folders' for='uploadFolders'>請選擇上傳的資料夾</label>"
             "</div>"
-            "<script>"
-            "const picker=document.getElementById('uploader');"
-            "const log=document.getElementById('uploadLog');"
-            "const uploadBase='%1';"
-            "const externalChunkThreshold=80*1024*1024;"
-            "const externalChunkSize=64*1024*1024;"
-            "const externalChunkConcurrency=2;"
-            "const externalChunkMaxRetries=3;"
-            "const externalChunkRetryDelayMs=1200;"
-            "const isProxyExternalUpload=/^\\/(?:PHONE|HFS)(?:\\/|$)/i.test(location.pathname||'');"
-            "const ensureRow=(name)=>{"
-            "const safe='upload-'+name.replace(/[^\\w.-]+/g,'_');"
-            "let row=document.getElementById(safe);"
-            "if(!row){"
-            "row=document.createElement('div');"
-            "row.id=safe;"
-            "row.className='upload-row progress';"
-            "row.innerHTML=\"<div class='upload-row-title'></div><div class='upload-row-bar'><div class='upload-row-fill'></div></div>\";"
-            "log.appendChild(row);"
-            "}"
-            "return row;"
-            "};"
-            "const updateRow=(name,percent,text,state)=>{"
-            "const row=ensureRow(name);"
-            "row.className='upload-row '+state;"
-            "row.querySelector('.upload-row-title').textContent=text;"
-            "row.querySelector('.upload-row-fill').style.width=Math.max(0,Math.min(100,percent))+'%';"
-            "};"
-            "const makeUploadId=()=>{"
-            "if(window.crypto&&typeof window.crypto.randomUUID==='function'){return window.crypto.randomUUID();}"
-            "return 'upload-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);"
-            "};"
-            "const setProgressText=(fileName,loaded,total,prefix)=>{"
-            "const percent=total>0?Math.min(100,Math.round((loaded/total)*100)):100;"
-            "updateRow(fileName,percent,prefix+fileName+' ('+percent+'%)','progress');"
-            "};"
-            "const delay=(ms)=>new Promise(resolve=>setTimeout(resolve,ms));"
-            "const shouldUseChunkUpload=(file)=>isProxyExternalUpload&&file.size>externalChunkThreshold;"
-            "async function uploadChunk(file,uploadId,chunkIndex,totalChunks,chunkSize,progress){"
-            "const start=chunkIndex*chunkSize;"
-            "const end=Math.min(file.size,start+chunkSize);"
-            "const blob=file.slice(start,end);"
-            "const uploadUrl=uploadBase+'&name='+encodeURIComponent(file.name)"
-            "+'&__upload_chunk=1&id='+encodeURIComponent(uploadId)"
-            "+'&index='+chunkIndex"
-            "+'&total='+totalChunks"
-            "+'&size='+file.size"
-            "+'&chunkSize='+chunkSize;"
-            "let lastError=null;"
-            "for(let attempt=1;attempt<=externalChunkMaxRetries;attempt++){"
-            "try{"
-            "await new Promise((resolve,reject)=>{"
-            "const xhr=new XMLHttpRequest();"
-            "xhr.open('POST',uploadUrl,true);"
-            "xhr.upload.onprogress=(event)=>{"
-            "progress[chunkIndex]=Math.min(blob.size,Math.max(0,event.loaded||0));"
-            "const loaded=progress.reduce((sum,value)=>sum+value,0);"
-            "setProgressText(file.name,loaded,file.size,attempt>1?'分段重試中：':'分段上傳中：');"
-            "};"
-            "xhr.onload=()=>{"
-            "if(xhr.status>=200&&xhr.status<300){"
-            "progress[chunkIndex]=blob.size;"
-            "const loaded=progress.reduce((sum,value)=>sum+value,0);"
-            "setProgressText(file.name,loaded,file.size,'分段上傳中：');"
-            "resolve();"
-            "}else{"
-            "const detail=(xhr.responseText||'').replace(/<[^>]+>/g,' ').replace(/\\s+/g,' ').trim().slice(0,220);"
-            "reject(new Error(detail?('HTTP '+xhr.status+' - '+detail):('HTTP '+xhr.status)));"
-            "}"
-            "};"
-            "xhr.onerror=()=>reject(new Error('network'));"
-            "xhr.send(blob);"
-            "});"
-            "return;"
-            "}catch(error){"
-            "lastError=error;"
-            "progress[chunkIndex]=0;"
-            "const loaded=progress.reduce((sum,value)=>sum+value,0);"
-            "setProgressText(file.name,loaded,file.size,attempt<externalChunkMaxRetries?'分段重試中：':'分段上傳中：');"
-            "if(attempt<externalChunkMaxRetries){await delay(externalChunkRetryDelayMs*attempt);}"
-            "}"
-            "}"
-            "throw lastError||new Error('chunk failed');"
-            "}"
-            "async function uploadChunkedFile(file){"
-            "const chunkSize=externalChunkSize;"
-            "const totalChunks=Math.max(1,Math.ceil(file.size/chunkSize));"
-            "const progress=new Array(totalChunks).fill(0);"
-            "const uploadId=makeUploadId();"
-            "let nextChunkIndex=0;"
-            "let abortedError=null;"
-            "setProgressText(file.name,0,file.size,'分段上傳中：');"
-            "const worker=async()=>{"
-            "while(true){"
-            "if(abortedError){return;}"
-            "const currentIndex=nextChunkIndex++;"
-            "if(currentIndex>=totalChunks){return;}"
-            "try{"
-            "await uploadChunk(file,uploadId,currentIndex,totalChunks,chunkSize,progress);"
-            "}catch(error){"
-            "abortedError=error;"
-            "throw error;"
-            "}"
-            "}"
-            "};"
-            "const workerCount=Math.min(externalChunkConcurrency,totalChunks);"
-            "await Promise.all(Array.from({length:workerCount},()=>worker()));"
-            "if(abortedError){throw abortedError;}"
-            "}"
-            "async function uploadFile(file){"
-            "if(shouldUseChunkUpload(file)){"
-            "await uploadChunkedFile(file);"
-            "return;"
-            "}"
-            "const uploadUrl=uploadBase+'&name='+encodeURIComponent(file.name);"
-            "updateRow(file.name,0,'上傳中：'+file.name+' (0%)','progress');"
-            "await new Promise((resolve,reject)=>{"
-            "const xhr=new XMLHttpRequest();"
-            "xhr.open('POST',uploadUrl,true);"
-            "xhr.upload.onprogress=(event)=>{"
-            "if(event.lengthComputable){"
-            "const percent=file.size>0?Math.min(100,Math.round((event.loaded/file.size)*100)):100;"
-            "updateRow(file.name,percent,'上傳中：'+file.name+' ('+percent+'%)','progress');"
-            "}"
-            "};"
-            "xhr.onload=()=>{"
-            "if(xhr.status>=200&&xhr.status<300){resolve();}"
-            "else{"
-            "const detail=(xhr.responseText||'').replace(/\\s+/g,' ').trim().slice(0,180);"
-            "reject(new Error(detail?('HTTP '+xhr.status+' - '+detail):('HTTP '+xhr.status)));"
-            "}"
-            "};"
-            "xhr.onerror=()=>reject(new Error('network'));"
-            "xhr.send(file);"
-            "});"
-            "}"
-            "picker?.addEventListener('change', async ()=>{"
-            "let anySuccess=false;"
-            "for(const file of picker.files){"
-            "try{await uploadFile(file);updateRow(file.name,100,'完成：'+file.name+' (100%)','done');anySuccess=true;}"
-            "catch(err){updateRow(file.name,100,'失敗：'+file.name+' ('+(err&&err.message?err.message:'unknown')+')','error');}"
-            "}"
-            "picker.value='';"
-            "if(anySuccess){setTimeout(()=>location.reload(),500);}"
-            "});"
-            "</script>")
-                          .arg(QStringLiteral("/__upload?share=%1&path=%2")
-                                   .arg(urlEncode(share.routeSegment), urlEncode(relativePath)));
+            "<div id='uploadDropZone' class='upload-dropzone' tabindex='0' role='button' aria-label='拖曳上傳區'>"
+            "<div class='upload-drop-title'>請直接拖曳要上傳的檔案或資料夾到此處，<br>支援同時上傳多個檔案及資料夾</div>"
+            "<div class='upload-drop-subtitle'>拖入後會直接上傳到目前目錄，若包含資料夾則會保留原本的子資料夾結構。</div>"
+            "</div>"
+            "<div id='uploadLog' class='upload-log'></div>"
+            "</div>");
+
+        QString uploadScript;
+        uploadScript += QStringLiteral("<script>");
+        uploadScript += QStringLiteral("(() => {");
+        uploadScript += QStringLiteral("const uploadConfig=");
+        uploadScript += uploadConfigJson;
+        uploadScript += QStringLiteral(";");
+        uploadScript += QStringLiteral(R"JS(
+            const filePicker=document.getElementById('uploadFiles');
+            const folderPicker=document.getElementById('uploadFolders');
+            const dropZone=document.getElementById('uploadDropZone');
+            const log=document.getElementById('uploadLog');
+            const externalChunkThreshold=80*1024*1024;
+            const externalChunkSize=64*1024*1024;
+            const externalChunkConcurrency=2;
+            const externalChunkMaxRetries=3;
+            const externalChunkRetryDelayMs=1200;
+            const isProxyExternalUpload=/^\/(?:PHONE|HFS)(?:\/|$)/i.test(location.pathname||'');
+            let uploadChain=Promise.resolve();
+            let pendingBatches=0;
+            let reloadNeeded=false;
+            let reloadScheduled=false;
+
+            const makeUploadId=()=>{
+                if(window.crypto&&typeof window.crypto.randomUUID==='function'){
+                    return window.crypto.randomUUID();
+                }
+                return 'upload-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+            };
+
+            const normalizeRelativePath=(value)=>{
+                return String(value||'')
+                    .replace(/\\/g,'/')
+                    .split('/')
+                    .filter((segment)=>segment&&segment!=='.')
+                    .join('/');
+            };
+
+            const joinRelativePath=(basePath,childPath)=>{
+                const base=normalizeRelativePath(basePath);
+                const child=normalizeRelativePath(childPath);
+                return [base,child].filter(Boolean).join('/');
+            };
+
+            const currentDirectoryPath=normalizeRelativePath(uploadConfig.currentPath||'');
+            const uploadBase='/__upload?share='+encodeURIComponent(uploadConfig.share||'');
+
+            const buildUploadItem=(file,relativePath='')=>{
+                const parentPath=normalizeRelativePath(relativePath);
+                return {
+                    id:makeUploadId(),
+                    file,
+                    relativePath:parentPath,
+                    displayName:parentPath?`${parentPath}/${file.name}`:file.name
+                };
+            };
+
+            const ensureRow=(item)=>{
+                const rowId='upload-'+item.id;
+                let row=document.getElementById(rowId);
+                if(!row){
+                    row=document.createElement('div');
+                    row.id=rowId;
+                    row.className='upload-row progress';
+                    row.innerHTML="<div class='upload-row-title'></div><div class='upload-row-bar'><div class='upload-row-fill'></div></div>";
+                    log.appendChild(row);
+                }
+                return row;
+            };
+
+            const updateRow=(item,percent,text,state)=>{
+                const row=ensureRow(item);
+                row.className='upload-row '+state;
+                row.querySelector('.upload-row-title').textContent=text;
+                row.querySelector('.upload-row-fill').style.width=Math.max(0,Math.min(100,percent))+'%';
+            };
+
+            const stripErrorDetail=(value,limit)=>{
+                return String(value||'')
+                    .replace(/<[^>]+>/g,' ')
+                    .replace(/\s+/g,' ')
+                    .trim()
+                    .slice(0,limit);
+            };
+
+            const setProgressText=(item,loaded,total,prefix)=>{
+                const percent=total>0?Math.min(100,Math.round((loaded/total)*100)):100;
+                updateRow(item,percent,prefix+item.displayName+' ('+percent+'%)','progress');
+            };
+
+            const delay=(ms)=>new Promise((resolve)=>setTimeout(resolve,ms));
+            const shouldUseChunkUpload=(file)=>isProxyExternalUpload&&file.size>externalChunkThreshold;
+
+            const buildUploadUrl=(item,extraQuery='')=>{
+                const targetPath=joinRelativePath(currentDirectoryPath,item.relativePath);
+                return uploadBase
+                    +'&path='+encodeURIComponent(targetPath)
+                    +'&name='+encodeURIComponent(item.file.name)
+                    +extraQuery;
+            };
+        )JS");
+        uploadScript += QStringLiteral(R"JS(
+            async function uploadChunk(item,uploadId,chunkIndex,totalChunks,chunkSize,progress){
+                const file=item.file;
+                const start=chunkIndex*chunkSize;
+                const end=Math.min(file.size,start+chunkSize);
+                const blob=file.slice(start,end);
+                const uploadUrl=buildUploadUrl(
+                    item,
+                    '&__upload_chunk=1&id='+encodeURIComponent(uploadId)
+                    +'&index='+chunkIndex
+                    +'&total='+totalChunks
+                    +'&size='+file.size
+                    +'&chunkSize='+chunkSize
+                );
+                let lastError=null;
+                for(let attempt=1;attempt<=externalChunkMaxRetries;attempt++){
+                    try{
+                        await new Promise((resolve,reject)=>{
+                            const xhr=new XMLHttpRequest();
+                            xhr.open('POST',uploadUrl,true);
+                            xhr.upload.onprogress=(event)=>{
+                                progress[chunkIndex]=Math.min(blob.size,Math.max(0,event.loaded||0));
+                                const loaded=progress.reduce((sum,value)=>sum+value,0);
+                                setProgressText(item,loaded,file.size,attempt>1?'分段重試中：':'分段上傳中：');
+                            };
+                            xhr.onload=()=>{
+                                if(xhr.status>=200&&xhr.status<300){
+                                    progress[chunkIndex]=blob.size;
+                                    const loaded=progress.reduce((sum,value)=>sum+value,0);
+                                    setProgressText(item,loaded,file.size,'分段上傳中：');
+                                    resolve();
+                                }else{
+                                    const detail=stripErrorDetail(xhr.responseText,220);
+                                    reject(new Error(detail?('HTTP '+xhr.status+' - '+detail):('HTTP '+xhr.status)));
+                                }
+                            };
+                            xhr.onerror=()=>reject(new Error('network'));
+                            xhr.send(blob);
+                        });
+                        return;
+                    }catch(error){
+                        lastError=error;
+                        progress[chunkIndex]=0;
+                        const loaded=progress.reduce((sum,value)=>sum+value,0);
+                        setProgressText(item,loaded,file.size,attempt<externalChunkMaxRetries?'分段重試中：':'分段上傳中：');
+                        if(attempt<externalChunkMaxRetries){
+                            await delay(externalChunkRetryDelayMs*attempt);
+                        }
+                    }
+                }
+                throw lastError||new Error('chunk failed');
+            }
+
+            async function uploadChunkedItem(item){
+                const file=item.file;
+                const chunkSize=externalChunkSize;
+                const totalChunks=Math.max(1,Math.ceil(file.size/chunkSize));
+                const progress=new Array(totalChunks).fill(0);
+                const uploadId=makeUploadId();
+                let nextChunkIndex=0;
+                let abortedError=null;
+                setProgressText(item,0,file.size,'分段上傳中：');
+
+                const worker=async()=>{
+                    while(true){
+                        if(abortedError){
+                            return;
+                        }
+                        const currentIndex=nextChunkIndex++;
+                        if(currentIndex>=totalChunks){
+                            return;
+                        }
+                        try{
+                            await uploadChunk(item,uploadId,currentIndex,totalChunks,chunkSize,progress);
+                        }catch(error){
+                            abortedError=error;
+                            throw error;
+                        }
+                    }
+                };
+
+                const workerCount=Math.min(externalChunkConcurrency,totalChunks);
+                await Promise.all(Array.from({length:workerCount},()=>worker()));
+                if(abortedError){
+                    throw abortedError;
+                }
+            }
+
+            async function uploadSingleItem(item){
+                const file=item.file;
+                if(shouldUseChunkUpload(file)){
+                    await uploadChunkedItem(item);
+                    return;
+                }
+                const uploadUrl=buildUploadUrl(item);
+                updateRow(item,0,'上傳中：'+item.displayName+' (0%)','progress');
+                await new Promise((resolve,reject)=>{
+                    const xhr=new XMLHttpRequest();
+                    xhr.open('POST',uploadUrl,true);
+                    xhr.upload.onprogress=(event)=>{
+                        if(event.lengthComputable){
+                            const percent=file.size>0?Math.min(100,Math.round((event.loaded/file.size)*100)):100;
+                            updateRow(item,percent,'上傳中：'+item.displayName+' ('+percent+'%)','progress');
+                        }
+                    };
+                    xhr.onload=()=>{
+                        if(xhr.status>=200&&xhr.status<300){
+                            resolve();
+                        }else{
+                            const detail=stripErrorDetail(xhr.responseText,220);
+                            reject(new Error(detail?('HTTP '+xhr.status+' - '+detail):('HTTP '+xhr.status)));
+                        }
+                    };
+                    xhr.onerror=()=>reject(new Error('network'));
+                    xhr.send(file);
+                });
+            }
+        )JS");
+        uploadScript += QStringLiteral(R"JS(
+            async function processUploadItems(items){
+                let anySuccess=false;
+                for(const item of items){
+                    try{
+                        await uploadSingleItem(item);
+                        updateRow(item,100,'完成：'+item.displayName+' (100%)','done');
+                        anySuccess=true;
+                    }catch(err){
+                        updateRow(item,100,'失敗：'+item.displayName+' ('+(err&&err.message?err.message:'unknown')+')','error');
+                    }
+                }
+                return anySuccess;
+            }
+
+            const scheduleReload=()=>{
+                if(reloadScheduled){
+                    return;
+                }
+                reloadScheduled=true;
+                setTimeout(()=>location.reload(),700);
+            };
+
+            const enqueueUploadItems=(items)=>{
+                const validItems=(items||[]).filter((item)=>item&&item.file);
+                if(!validItems.length){
+                    return;
+                }
+                pendingBatches+=1;
+                uploadChain=uploadChain
+                    .then(async()=>{
+                        try{
+                            if(await processUploadItems(validItems)){
+                                reloadNeeded=true;
+                            }
+                        }finally{
+                            pendingBatches=Math.max(0,pendingBatches-1);
+                            if(pendingBatches===0&&reloadNeeded){
+                                reloadNeeded=false;
+                                scheduleReload();
+                            }
+                        }
+                    })
+                    .catch((error)=>{
+                        console.error(error);
+                    });
+            };
+
+            const buildItemsFromFiles=(files,relativePathGetter)=>{
+                return Array.from(files||[])
+                    .filter((file)=>file&&file.name)
+                    .map((file)=>buildUploadItem(file,relativePathGetter(file)));
+            };
+
+            const handleFilePick=(event)=>{
+                enqueueUploadItems(buildItemsFromFiles(event.target.files,()=>'')); 
+                event.target.value='';
+            };
+
+            const handleFolderPick=(event)=>{
+                enqueueUploadItems(buildItemsFromFiles(event.target.files,(file)=>{
+                    return file.webkitRelativePath
+                        ? file.webkitRelativePath.split('/').slice(0,-1).join('/')
+                        : '';
+                }));
+                event.target.value='';
+            };
+        )JS");
+        uploadScript += QStringLiteral(R"JS(
+            const readAllDirectoryEntries=(reader)=>{
+                return new Promise((resolve,reject)=>{
+                    const entries=[];
+                    const readNextBatch=()=>{
+                        reader.readEntries((batch)=>{
+                            if(!batch||batch.length===0){
+                                resolve(entries);
+                                return;
+                            }
+                            entries.push(...batch);
+                            readNextBatch();
+                        },reject);
+                    };
+                    readNextBatch();
+                });
+            };
+
+            const readDroppedEntry=(entry,parentPath='')=>{
+                if(!entry){
+                    return Promise.resolve([]);
+                }
+                if(entry.isFile){
+                    return new Promise((resolve,reject)=>{
+                        entry.file((file)=>{
+                            resolve([buildUploadItem(file,parentPath)]);
+                        },reject);
+                    });
+                }
+                if(!entry.isDirectory){
+                    return Promise.resolve([]);
+                }
+                const currentPath=parentPath?`${parentPath}/${entry.name}`:entry.name;
+                const reader=entry.createReader();
+                return readAllDirectoryEntries(reader).then((children)=>
+                    Promise.all(children.map((child)=>readDroppedEntry(child,currentPath)))
+                        .then((results)=>results.flat())
+                );
+            };
+
+            const collectDroppedUploadItems=async(dataTransfer)=>{
+                const items=Array.from(dataTransfer.items||[]);
+                const canReadDirectories=items.some((item)=>typeof item.webkitGetAsEntry==='function');
+                if(canReadDirectories){
+                    const results=await Promise.all(
+                        items
+                            .map((item)=>item.webkitGetAsEntry())
+                            .filter((entry)=>entry)
+                            .map((entry)=>readDroppedEntry(entry))
+                    );
+                    return results.flat();
+                }
+                return buildItemsFromFiles(dataTransfer.files,()=> '');
+            };
+
+            const handleDrag=(event)=>{
+                event.preventDefault();
+                dropZone.classList.add('is-over');
+            };
+
+            const clearDragState=(event)=>{
+                event.preventDefault();
+                dropZone.classList.remove('is-over');
+            };
+
+            const handleDrop=async(event)=>{
+                event.preventDefault();
+                dropZone.classList.remove('is-over');
+                if(!event.dataTransfer){
+                    return;
+                }
+                try{
+                    enqueueUploadItems(await collectDroppedUploadItems(event.dataTransfer));
+                }catch(error){
+                    console.error(error);
+                }
+            };
+        )JS");
+        uploadScript += QStringLiteral(R"JS(
+            filePicker?.addEventListener('change',handleFilePick);
+            folderPicker?.addEventListener('change',handleFolderPick);
+            dropZone?.addEventListener('click',()=>filePicker?.click());
+            dropZone?.addEventListener('keydown',(event)=>{
+                if(event.key==='Enter'||event.key===' '){
+                    event.preventDefault();
+                    filePicker?.click();
+                }
+            });
+            ['dragenter','dragover'].forEach((eventName)=>{
+                dropZone?.addEventListener(eventName,handleDrag);
+            });
+            ['dragleave','dragend'].forEach((eventName)=>{
+                dropZone?.addEventListener(eventName,clearDragState);
+            });
+            dropZone?.addEventListener('drop',handleDrop);
+            })();
+        )JS");
+        uploadScript += QStringLiteral("</script>");
+        uploadBlock = uploadMarkup + uploadScript;
     }
 
     const QString selectionConfigJson = QString::fromUtf8(
@@ -2447,7 +3534,7 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                                         "updateSelectionState();"
                                         "</script>")
                                         .arg(selectionConfigJson);
-    const QString html = QStringLiteral(
+    QString html = QStringLiteral(
         "<!doctype html><html><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         "<title>%1 - %2</title>"
@@ -2470,24 +3557,34 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
         ".row{display:flex;justify-content:space-between;gap:14px;align-items:center;text-decoration:none;color:#163152;background:#f7fbff;border:1px solid #dbe6f5;border-radius:18px;padding:16px 18px;}"
         ".row-select{display:flex;align-items:center;justify-content:center;flex:none;width:24px;}"
         ".row-check{width:18px;height:18px;accent-color:#1f9df2;cursor:pointer;}"
-        ".icon{width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:14px;font-size:20px;font-weight:800;flex:none;}"
+        ".icon{width:48px;height:48px;display:flex;align-items:center;justify-content:center;border:0!important;outline:0!important;box-shadow:none!important;border-radius:14px;font-size:20px;font-weight:800;flex:none;}"
         ".icon.folder{background:#fff2c9;color:#d79b00;}"
         ".icon.file{background:#dff1ff;color:#1f9df2;}"
         ".icon.audio{background:#eaf7ec;color:#2d9b52;}"
         ".icon.video{background:#ffe8e3;color:#d96445;}"
         ".thumb{width:64px;height:64px;object-fit:cover;border-radius:16px;flex:none;background:#dff1ff;border:1px solid #dbe6f5;}"
-        ".image-row{cursor:default;}"
-        ".row-main-link{display:flex;align-items:center;gap:14px;min-width:0;flex:1;text-decoration:none;color:#163152;}"
+        ".image-row{cursor:default;}.file-row{cursor:pointer;}"
+        ".row-main-link{display:flex;align-items:center;gap:14px;min-width:0;flex:1;text-decoration:none;color:#163152;outline:0;box-shadow:none;}"
         ".row-main{min-width:0;flex:1;}"
         ".row-name{font-size:18px;font-weight:700;word-break:break-all;}"
         ".row-note{margin-top:6px;color:#6d83a6;font-size:14px;}"
         ".row-size{color:#5d7398;font-weight:700;white-space:nowrap;}"
         ".row-download{display:inline-flex;align-items:center;justify-content:center;min-width:112px;padding:10px 16px;border-radius:14px;background:#1f9df2;color:#fff;text-decoration:none;font-weight:800;white-space:nowrap;flex:none;}"
         ".selection-summary{padding-left:6px;}"
-        ".upload-box{margin-top:20px;border-top:1px solid #e8eef8;padding-top:18px;}"
-        ".upload-title{font-size:20px;font-weight:800;margin-bottom:10px;}"
-        ".upload-note{color:#6d83a6;margin-top:10px;}"
-        ".upload-log{display:grid;gap:10px;margin-top:12px;}"
+        ".upload-box{margin-top:26px;border-top:1px solid #e8eef8;padding-top:22px;}"
+        ".upload-title{font-size:30px;font-weight:900;margin-bottom:8px;color:#163152;}"
+        ".upload-help{color:#6d83a6;line-height:1.75;font-size:16px;}"
+        ".upload-input{display:none;}"
+        ".upload-pickers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:18px;}"
+        ".upload-picker-btn{display:flex;align-items:center;justify-content:center;min-height:90px;padding:18px 24px;border-radius:26px;text-align:center;font-size:19px;font-weight:900;line-height:1.45;cursor:pointer;user-select:none;transition:transform .18s ease,box-shadow .18s ease,filter .18s ease;}"
+        ".upload-picker-btn:hover,.upload-picker-btn:focus-visible{transform:translateY(-2px);filter:saturate(1.03);}"
+        ".upload-picker-btn.files{color:#fff;background:linear-gradient(135deg,#c45d1f,#ea9338);box-shadow:0 18px 34px rgba(187,77,31,.24);}"
+        ".upload-picker-btn.folders{color:#7c5300;background:linear-gradient(135deg,#ffe4a0,#f6c64d);box-shadow:0 18px 34px rgba(210,160,47,.2);}"
+        ".upload-dropzone{display:grid;gap:14px;place-items:center;text-align:center;min-height:240px;margin-top:20px;padding:30px;border:2px dashed rgba(67,157,150,.4);border-radius:28px;background:linear-gradient(180deg,rgba(240,248,251,.96),rgba(255,255,255,.94));transition:border-color .18s ease,transform .18s ease,background .18s ease,box-shadow .18s ease;}"
+        ".upload-dropzone.is-over{transform:translateY(-2px) scale(1.01);border-color:#ea9338;background:linear-gradient(180deg,rgba(255,242,228,.96),rgba(247,252,255,.96));box-shadow:0 18px 36px rgba(80,141,164,.14);}"
+        ".upload-drop-title{font-size:24px;line-height:1.55;font-weight:900;color:#223b5f;}"
+        ".upload-drop-subtitle{max-width:680px;color:#6d83a6;line-height:1.8;font-size:16px;}"
+        ".upload-log{display:grid;gap:10px;margin-top:16px;}"
         ".upload-row{background:#f7fbff;border:1px solid #dbe6f5;border-radius:14px;padding:12px 14px;}"
         ".upload-row-title{font-weight:700;color:#244b74;word-break:break-all;}"
         ".upload-row-bar{height:8px;background:#e7f0fb;border-radius:999px;overflow:hidden;margin-top:8px;}"
@@ -2518,6 +3615,13 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
         ".thumb,.icon{width:56px;height:56px;border-radius:14px;}"
         ".row-size{padding-top:4px;}"
         ".row-download{min-width:96px;padding:10px 14px;}"
+        ".file-row,.image-row,.media-row{flex-wrap:wrap;}"
+        ".file-row .row-size,.image-row .row-size,.media-row .row-size{margin-left:auto;}"
+        ".upload-pickers{grid-template-columns:1fr;}"
+        ".upload-picker-btn{min-height:78px;font-size:18px;padding:16px 18px;}"
+        ".upload-dropzone{min-height:200px;padding:24px 18px;}"
+        ".upload-drop-title{font-size:21px;}"
+        ".upload-drop-subtitle{font-size:15px;line-height:1.75;}"
         ".gallery-shell{width:94vw;height:84vh;grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) auto;gap:12px;margin:5vh auto 0;}"
         ".gallery-stage{grid-column:1;padding:12px;}"
         ".gallery-caption{grid-column:1;flex-direction:column;align-items:flex-start;padding-right:78px;}"
@@ -2545,6 +3649,8 @@ QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
                                   uploadBlock,
                                   galleryBlock,
                                   selectionScript);
+    html.replace(QStringLiteral("</style>"), archiveUiStyles() + QStringLiteral("</style>"));
+    html.replace(QStringLiteral("</body>"), archiveUiMarkup() + archiveUiScript() + QStringLiteral("</body>"));
     return localizeWebHtml(html).toUtf8();
 }
 
@@ -3209,6 +4315,21 @@ QString HttpFileServer::localizeWebHtml(QString html) const
         {QStringLiteral("此站台已啟用下載密碼保護"), QStringLiteral("This site is protected by a download password")},
         {QStringLiteral("<div class='row-note'>圖片預覽</div>"), QStringLiteral("<div class='row-note'>Image preview</div>")},
         {QStringLiteral(">直接下載</a>"), QStringLiteral(">Download</a>")},
+        {QStringLiteral(">打包下載</button>"), QStringLiteral(">Package download</button>")},
+        {QStringLiteral("點擊整列進入資料夾"), QStringLiteral("Click the row to open the folder")},
+        {QStringLiteral("<div class='row-size'>進入資料夾</div>"), QStringLiteral("<div class='row-size'>Open folder</div>")},
+        {QStringLiteral("正在準備打包…"), QStringLiteral("Preparing package...")},
+        {QStringLiteral("正在讀取資料夾內容，請勿關閉此頁面。"), QStringLiteral("Reading the folder. Keep this page open.")},
+        {QStringLiteral("正在打包 "), QStringLiteral("Packaging ")},
+        {QStringLiteral("正在建立壓縮檔："), QStringLiteral("Creating archive: ")},
+        {QStringLiteral("打包完成，開始下載…"), QStringLiteral("Package ready. Starting download...")},
+        {QStringLiteral("壓縮檔已完成，瀏覽器將自動開始下載。"), QStringLiteral("The archive is ready and the browser will start downloading it automatically.")},
+        {QStringLiteral("打包失敗"), QStringLiteral("Packaging failed")},
+        {QStringLiteral("建立壓縮檔時發生錯誤。"), QStringLiteral("An error occurred while creating the archive.")},
+        {QStringLiteral("無法建立打包工作。"), QStringLiteral("Unable to start the packaging job.")},
+        {QStringLiteral("打包工作失敗。"), QStringLiteral("The packaging job failed.")},
+        {QStringLiteral("目前打包工作較多，請稍後再試。"), QStringLiteral("Too many packaging jobs are running. Please try again later.")},
+        {QStringLiteral(">關閉</button>"), QStringLiteral(">Close</button>")},
         {QStringLiteral("aria-label='關閉預覽'"), QStringLiteral("aria-label='Close preview'")},
         {QStringLiteral("aria-label='上一張'"), QStringLiteral("aria-label='Previous image'")},
         {QStringLiteral("aria-label='下一張'"), QStringLiteral("aria-label='Next image'")},
@@ -3221,6 +4342,7 @@ QString HttpFileServer::localizeWebHtml(QString html) const
         {QStringLiteral("<div class='row-note'>資料夾</div>"), QStringLiteral("<div class='row-note'>Folder</div>")},
         {QStringLiteral("<div class='row-size'>資料夾</div>"), QStringLiteral("<div class='row-size'>Folder</div>")},
         {QStringLiteral("<div class='row-note'>一般檔案</div>"), QStringLiteral("<div class='row-note'>File</div>")},
+        {QStringLiteral("<div class='row-note'>檔案</div>"), QStringLiteral("<div class='row-note'>File</div>")},
         {QStringLiteral("這個資料夾目前沒有任何檔案。"), QStringLiteral("This folder is empty.")},
         {QStringLiteral("<div class='upload-title'>上傳檔案</div>"), QStringLiteral("<div class='upload-title'>Upload files</div>")},
         {QStringLiteral("可一次選擇多個檔案，完成後會自動重新整理清單。"), QStringLiteral("Select multiple files at once. The list refreshes automatically when uploads finish.")},
@@ -3553,11 +4675,18 @@ void HttpFileServer::serviceTransfers()
         return;
     }
 
-    qint64 globalBudget = totalLimitBytesPerSecond() > 0
-                              ? qMax<qint64>(1, totalLimitBytesPerSecond() / 20)
-                              : (256 * 1024);
-    QHash<QString, qint64> perIpRemaining;
+    // Keep a moderate amount queued in Qt.  Progress is based on bytes accepted
+    // by QTcpSocket::write(), so it can lead the browser by at most this small
+    // buffer, while avoiding thousands of 256 KB callbacks on fast LAN links.
+    constexpr qint64 kMaxPendingSocketBytes = 8 * 1024 * 1024;
+    constexpr qint64 kUnlimitedChunkBytes = 4 * 1024 * 1024;
+
+    const qint64 totalLimit = totalLimitBytesPerSecond();
     const qint64 perIpLimit = perIpLimitBytesPerSecond();
+    qint64 globalBudget = totalLimit > 0
+                              ? qMax<qint64>(1, totalLimit / 20)
+                              : kUnlimitedChunkBytes;
+    QHash<QString, qint64> perIpRemaining;
 
     const QList<QTcpSocket *> keys = m_transfers.keys();
     for (QTcpSocket *socket : keys) {
@@ -3567,8 +4696,25 @@ void HttpFileServer::serviceTransfers()
             continue;
         }
 
-        qint64 chunkBudget = 256 * 1024;
-        if (totalLimitBytesPerSecond() > 0) {
+        if (socket->state() == QAbstractSocket::UnconnectedState) {
+            finalizeTransfer(socket, false);
+            continue;
+        }
+
+        if (transfer->remaining <= 0) {
+            if (socket->bytesToWrite() <= 0) {
+                finalizeTransfer(socket, true);
+            }
+            continue;
+        }
+
+        const qint64 pendingRoom = kMaxPendingSocketBytes - socket->bytesToWrite();
+        if (pendingRoom <= 0) {
+            continue;
+        }
+
+        qint64 chunkBudget = qMin(kUnlimitedChunkBytes, pendingRoom);
+        if (totalLimit > 0) {
             chunkBudget = qMin(chunkBudget, globalBudget);
         }
         if (perIpLimit > 0) {
@@ -3584,31 +4730,50 @@ void HttpFileServer::serviceTransfers()
         const qint64 readSize = qMin(chunkBudget, transfer->remaining);
         const QByteArray chunk = transfer->file->read(readSize);
         if (chunk.isEmpty()) {
-            finalizeTransfer(socket, true);
+            finalizeTransfer(socket, false);
             continue;
         }
 
-        transfer->socket->write(chunk);
-        transfer->remaining -= chunk.size();
-        transfer->bytesSent += chunk.size();
-        if (transfer->trackAsDownload) {
-            m_totalBytes += chunk.size();
-            m_windowBytes += chunk.size();
+        const qint64 queuedBytes = transfer->socket->write(chunk);
+        if (queuedBytes <= 0) {
+            finalizeTransfer(socket, false);
+            continue;
         }
 
-        if (totalLimitBytesPerSecond() > 0) {
-            globalBudget -= chunk.size();
+        if (queuedBytes < chunk.size()) {
+            const qint64 rewindBytes = chunk.size() - queuedBytes;
+            if (!transfer->file->seek(transfer->file->pos() - rewindBytes)) {
+                finalizeTransfer(socket, false);
+                continue;
+            }
+        }
+
+        transfer->remaining -= queuedBytes;
+        transfer->bytesQueued += queuedBytes;
+
+        // Counting accepted payload bytes is stable on loopback/LAN downloads
+        // and differs from actual browser receipt by no more than the bounded
+        // socket queue above.  It is also cheap enough not to disturb transfer
+        // performance.
+        if (transfer->trackAsDownload) {
+            m_totalBytes += static_cast<quint64>(queuedBytes);
+            m_windowBytes += queuedBytes;
+        }
+
+        if (totalLimit > 0) {
+            globalBudget -= queuedBytes;
         }
         if (perIpLimit > 0) {
-            perIpRemaining[transfer->clientAddress] -= chunk.size();
+            perIpRemaining[transfer->clientAddress] -= queuedBytes;
         }
 
-        if (transfer->remaining <= 0) {
+        if (transfer->remaining <= 0 && socket->bytesToWrite() <= 0) {
             finalizeTransfer(socket, true);
         }
     }
 
-    updateStats();
+    // Statistics are published by the one-second stats timer.  Emitting them
+    // for every network write was the main source of dashboard lag.
 }
 
 void HttpFileServer::finalizeTransfer(QTcpSocket *socket, bool success)
@@ -3630,7 +4795,7 @@ void HttpFileServer::finalizeTransfer(QTcpSocket *socket, bool success)
         record.fileName = transfer->fileName;
         record.relativePath = transfer->relativePath;
         record.clientAddress = transfer->clientAddress;
-        record.bytesTransferred = transfer->bytesSent;
+        record.bytesTransferred = transfer->bytesQueued;
         record.success = success;
         record.timestamp = QDateTime::currentDateTime();
 
@@ -3644,9 +4809,14 @@ void HttpFileServer::finalizeTransfer(QTcpSocket *socket, bool success)
                                : QStringLiteral("%1 下載中斷：%2").arg(record.clientAddress, record.fileName));
     }
 
+    const QString cleanupArchiveJobId = transfer->cleanupArchiveJobId;
     if (socket->state() == QAbstractSocket::ConnectedState) {
         socket->disconnectFromHost();
     }
+    if (!cleanupArchiveJobId.isEmpty()) {
+        cleanupArchiveJob(cleanupArchiveJobId, true);
+    }
+    publishActiveTransfers();
     updateStats();
 }
 

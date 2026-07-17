@@ -15,6 +15,8 @@
 #include <QCursor>
 #include <QDir>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -36,11 +38,13 @@
 #include <QPainterPath>
 #include <QPalette>
 #include <QPixmap>
+#include <QProgressBar>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScreen>
 #include <QScrollArea>
 #include <QSettings>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSpinBox>
@@ -517,6 +521,7 @@ MainWindow::MainWindow(Controller *controller, QWidget *parent)
 
     connect(m_controller, &Controller::sharesChanged, this, &MainWindow::refreshShares);
     connect(m_controller, &Controller::downloadsChanged, this, &MainWindow::refreshStats);
+    connect(m_controller, &Controller::activeTransfersChanged, this, &MainWindow::refreshActiveTransfers);
     connect(m_controller, &Controller::statsChanged, this, &MainWindow::refreshStats);
     connect(m_controller, &Controller::statsChanged, this, &MainWindow::refreshFooter);
     connect(m_controller, &Controller::activityLogChanged, this, &MainWindow::refreshActivityLog);
@@ -707,7 +712,7 @@ void MainWindow::buildSidebar(QHBoxLayout *rootLayout)
     m_brandSubtitle->setObjectName(QStringLiteral("BrandSub"));
     m_brandSubtitle->setAlignment(Qt::AlignCenter);
 
-    auto *brandVersion = new QLabel(QStringLiteral("V1.2.0.0"), brandBox);
+    auto *brandVersion = new QLabel(QStringLiteral("V1.2.2.0"), brandBox);
     brandVersion->setObjectName(QStringLiteral("BrandVersion"));
     brandVersion->setAlignment(Qt::AlignCenter);
 
@@ -860,6 +865,22 @@ void MainWindow::buildContent(QHBoxLayout *rootLayout)
     titleLayout->addWidget(m_pageTitle);
     titleLayout->addWidget(m_pageSubtitle);
 
+    m_openWebButton = new QPushButton(header);
+    m_openWebButton->setObjectName(QStringLiteral("OpenWebButton"));
+    m_openWebButton->setCursor(Qt::PointingHandCursor);
+    m_openWebButton->setMinimumHeight(sp(48));
+    m_openWebButton->setMinimumWidth(sp(154));
+    connect(m_openWebButton, &QPushButton::clicked, this, [this]() {
+        if (!m_controller->isServerRunning()) {
+            return;
+        }
+
+        const QString localUrl = m_controller->localBaseUrl().trimmed();
+        if (!localUrl.isEmpty()) {
+            QDesktopServices::openUrl(QUrl(localUrl));
+        }
+    });
+
     m_startStopButton = new QPushButton(header);
     m_startStopButton->setCursor(Qt::PointingHandCursor);
     m_startStopButton->setMinimumHeight(sp(48));
@@ -883,6 +904,7 @@ void MainWindow::buildContent(QHBoxLayout *rootLayout)
     });
 
     headerLayout->addLayout(titleLayout, 1);
+    headerLayout->addWidget(m_openWebButton, 0, Qt::AlignVCenter);
     headerLayout->addWidget(m_startStopButton, 0, Qt::AlignVCenter);
 
     m_pages = new QStackedWidget(content);
@@ -927,6 +949,22 @@ void MainWindow::buildPages()
     infoLayout->addWidget(m_lblServerInfoTitle);
     infoLayout->addWidget(m_serverInfoLabel);
     dashboardLayout->addWidget(infoCard);
+
+    auto *transferCard = new QFrame(dashboard);
+    transferCard->setObjectName(QStringLiteral("InfoCard"));
+    applySoftShadow(transferCard, 24, 7);
+    auto *transferCardLayout = new QVBoxLayout(transferCard);
+    transferCardLayout->setContentsMargins(sp(26), sp(24), sp(26), sp(24));
+    transferCardLayout->setSpacing(sp(14));
+    m_lblActiveTransfersTitle = new QLabel(tx(QStringLiteral("目前檔案下載與打包進度"), QStringLiteral("Current Downloads and Packaging")), transferCard);
+    m_lblActiveTransfersTitle->setObjectName(QStringLiteral("SectionTitle"));
+    m_activeTransfersContainer = new QWidget(transferCard);
+    m_activeTransfersLayout = new QVBoxLayout(m_activeTransfersContainer);
+    m_activeTransfersLayout->setContentsMargins(0, 0, 0, 0);
+    m_activeTransfersLayout->setSpacing(sp(10));
+    transferCardLayout->addWidget(m_lblActiveTransfersTitle);
+    transferCardLayout->addWidget(m_activeTransfersContainer);
+    dashboardLayout->addWidget(transferCard);
     dashboardLayout->addStretch();
     m_pages->addWidget(makeScrollablePage(dashboard, m_pages));
 
@@ -1116,6 +1154,18 @@ void MainWindow::buildPages()
     m_resumeCheck = new QCheckBox(tx(QStringLiteral("啟用斷點續傳（支援 HTTP Range 請求）"), QStringLiteral("Enable Resumable Downloads (HTTP Range)")), systemCard);
     m_closeToTrayCheck = new QCheckBox(tx(QStringLiteral("關閉視窗時不直接退出，保持在系統列"), QStringLiteral("Close to system tray instead of exiting")), systemCard);
     m_launchOnStartupCheck = new QCheckBox(tx(QStringLiteral("開機時自動啟動並在系統列執行"), QStringLiteral("Launch on startup and minimize to tray")), systemCard);
+    m_startServerOnLaunchCheck = new QCheckBox(tx(QStringLiteral("啟動程式時自動啟用伺服器"), QStringLiteral("Automatically start server when the program opens")), systemCard);
+    connect(m_launchOnStartupCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        if (!m_startServerOnLaunchCheck) {
+            return;
+        }
+        if (checked) {
+            m_startServerOnLaunchCheck->setChecked(true);
+            m_startServerOnLaunchCheck->setEnabled(false);
+        } else {
+            m_startServerOnLaunchCheck->setEnabled(true);
+        }
+    });
 
     m_lblSiteName = makeFormLabel(tx(QStringLiteral("站台名稱"), QStringLiteral("Site Name")), systemCard);
     m_lblPort = makeFormLabel(tx(QStringLiteral("HTTP 連接埠"), QStringLiteral("HTTP Port")), systemCard);
@@ -1130,6 +1180,7 @@ void MainWindow::buildPages()
     form->addRow(m_lblPassword, m_passwordEdit);
     form->addRow(QString(), m_resumeCheck);
     form->addRow(QString(), m_closeToTrayCheck);
+    form->addRow(QString(), m_startServerOnLaunchCheck);
     form->addRow(QString(), m_launchOnStartupCheck);
     systemCardLayout->addLayout(form);
 
@@ -1175,6 +1226,7 @@ void MainWindow::refreshAll()
     refreshSettingsForms();
     refreshStats();
     refreshActivityLog();
+    refreshActiveTransfers();
     refreshFooter();
     refreshShares();
     refreshAbout();
@@ -1188,6 +1240,110 @@ void MainWindow::refreshStats()
     m_totalBytesValue->setText(humanReadableSize(stats.totalBytes));
     m_activeConnectionsValue->setText(QString::number(stats.activeConnections));
     m_liveSpeedValue->setText(QStringLiteral("%1/s").arg(humanReadableSize(stats.currentBytesPerSecond)));
+}
+
+void MainWindow::refreshActiveTransfers()
+{
+    if (!m_activeTransfersLayout) {
+        return;
+    }
+
+    const QList<ActiveTransferInfo> transfers = m_controller->activeTransfers();
+    QSet<QString> activeIds;
+    activeIds.reserve(transfers.size());
+    for (const ActiveTransferInfo &transfer : transfers) {
+        activeIds.insert(transfer.id);
+    }
+
+    // Remove only rows that actually finished.  The previous implementation
+    // deleted and rebuilt every widget twice to four times per second, which
+    // caused visible stutter during a fast download.
+    const QStringList existingIds = m_activeTransferRows.keys();
+    for (const QString &id : existingIds) {
+        if (activeIds.contains(id)) {
+            continue;
+        }
+        ActiveTransferRowWidgets widgets = m_activeTransferRows.take(id);
+        if (widgets.row) {
+            m_activeTransfersLayout->removeWidget(widgets.row);
+            widgets.row->deleteLater();
+        }
+    }
+
+    if (transfers.isEmpty()) {
+        if (!m_activeTransfersEmptyLabel) {
+            m_activeTransfersEmptyLabel = new QLabel(m_activeTransfersContainer);
+            m_activeTransfersEmptyLabel->setObjectName(QStringLiteral("EmptyState"));
+            m_activeTransfersEmptyLabel->setWordWrap(true);
+            m_activeTransfersLayout->addWidget(m_activeTransfersEmptyLabel);
+        }
+        m_activeTransfersEmptyLabel->setText(tx(QStringLiteral("目前沒有正在下載或打包的檔案。"),
+                                                QStringLiteral("No files are currently downloading or being packaged.")));
+        m_activeTransfersEmptyLabel->show();
+        return;
+    }
+
+    if (m_activeTransfersEmptyLabel) {
+        m_activeTransfersEmptyLabel->hide();
+    }
+
+    for (const ActiveTransferInfo &transfer : transfers) {
+        ActiveTransferRowWidgets widgets = m_activeTransferRows.value(transfer.id);
+        if (!widgets.row) {
+            widgets.row = new QFrame(m_activeTransfersContainer);
+            widgets.row->setObjectName(QStringLiteral("TransferRow"));
+            auto *layout = new QVBoxLayout(widgets.row);
+            layout->setContentsMargins(sp(14), sp(12), sp(14), sp(12));
+            layout->setSpacing(sp(7));
+
+            auto *top = new QHBoxLayout();
+            widgets.name = new QLabel(widgets.row);
+            widgets.name->setObjectName(QStringLiteral("TransferName"));
+            widgets.name->setWordWrap(true);
+            widgets.status = new QLabel(widgets.row);
+            widgets.status->setObjectName(QStringLiteral("TransferStatus"));
+            top->addWidget(widgets.name, 1);
+            top->addWidget(widgets.status, 0, Qt::AlignTop);
+
+            widgets.progress = new QProgressBar(widgets.row);
+            widgets.progress->setRange(0, 1000);
+            widgets.progress->setTextVisible(true);
+
+            widgets.detail = new QLabel(widgets.row);
+            widgets.detail->setObjectName(QStringLiteral("TransferDetail"));
+            widgets.detail->setWordWrap(true);
+
+            layout->addLayout(top);
+            layout->addWidget(widgets.progress);
+            layout->addWidget(widgets.detail);
+            m_activeTransfersLayout->addWidget(widgets.row);
+            m_activeTransferRows.insert(transfer.id, widgets);
+        }
+
+        const QString statusText = transfer.status == QStringLiteral("packaging")
+                                       ? tx(QStringLiteral("打包中"), QStringLiteral("Packaging"))
+                                       : tx(QStringLiteral("下載中"), QStringLiteral("Downloading"));
+        const qint64 processed = qBound<qint64>(0, transfer.bytesProcessed, qMax<qint64>(0, transfer.totalBytes));
+        const int progressValue = transfer.totalBytes > 0
+                                      ? qBound(0, static_cast<int>((processed * 1000) / transfer.totalBytes), 1000)
+                                      : 0;
+        const QString progressText = progressValue >= 1000
+                                         ? QStringLiteral("100%")
+                                         : QString::number(progressValue / 10.0, 'f', 1) + QLatin1Char('%');
+        const QString clientText = transfer.clientAddress.trimmed().isEmpty()
+                                       ? QString()
+                                       : tx(QStringLiteral("用戶：%1  ・  "), QStringLiteral("Client: %1  ·  ")).arg(transfer.clientAddress);
+        const QString detailText = QStringLiteral("%1%2 / %3")
+                                       .arg(clientText,
+                                            humanReadableSize(processed),
+                                            humanReadableSize(transfer.totalBytes));
+
+        if (widgets.name->text() != transfer.fileName) widgets.name->setText(transfer.fileName);
+        if (widgets.status->text() != statusText) widgets.status->setText(statusText);
+        if (widgets.progress->value() != progressValue) widgets.progress->setValue(progressValue);
+        if (widgets.progress->format() != progressText) widgets.progress->setFormat(progressText);
+        if (widgets.detail->text() != detailText) widgets.detail->setText(detailText);
+    }
 }
 
 void MainWindow::refreshActivityLog()
@@ -1318,6 +1474,7 @@ void MainWindow::refreshSettingsForms()
         const QSignalBlocker blocker6(m_resumeCheck);
         const QSignalBlocker blocker7(m_closeToTrayCheck);
         const QSignalBlocker blocker8(m_launchOnStartupCheck);
+        const QSignalBlocker blocker9(m_startServerOnLaunchCheck);
 
         m_siteNameEdit->setText(settings.siteName);
         m_portSpin->setValue(settings.port);
@@ -1327,8 +1484,10 @@ void MainWindow::refreshSettingsForms()
         m_resumeCheck->setChecked(settings.download.resumeEnabled);
         m_closeToTrayCheck->setChecked(settings.minimizeToTrayOnClose);
         m_launchOnStartupCheck->setChecked(settings.launchOnStartup);
+        m_startServerOnLaunchCheck->setChecked(settings.launchOnStartup ? true : settings.startServerOnLaunch);
         m_closeToTrayCheck->setEnabled(trayAvailable());
         m_launchOnStartupCheck->setEnabled(trayAvailable());
+        m_startServerOnLaunchCheck->setEnabled(!settings.launchOnStartup);
     }
 
     QPixmap logo = settings.logoPath.isEmpty() ? QPixmap(QStringLiteral(":/logo.png")) : QPixmap(settings.logoPath);
@@ -1371,7 +1530,7 @@ void MainWindow::refreshAbout()
             "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
             "作者：Terence0816<br>"
             "GitHub：<a href='https://github.com/Terence0816/EasyCloudHFS'>https://github.com/Terence0816/EasyCloudHFS</a><br>"
-            "版本：v1.2.0.0"
+            "版本：v1.2.2.0"
             "</div>"
             "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
             "授權聲明：<br>"
@@ -1398,7 +1557,7 @@ void MainWindow::refreshAbout()
             "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
             "Author: Terence0816<br>"
             "GitHub: <a href='https://github.com/Terence0816/EasyCloudHFS'>https://github.com/Terence0816/EasyCloudHFS</a><br>"
-            "Version: v1.2.0.0"
+            "Version: v1.2.2.0"
             "</div>"
             "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
             "License Notice:<br>"
@@ -1413,6 +1572,14 @@ void MainWindow::refreshAbout()
 
 void MainWindow::refreshStartStopButton()
 {
+    if (m_openWebButton) {
+        m_openWebButton->setText(tx(QStringLiteral("開啟連結網頁"), QStringLiteral("Open Web Page")));
+        m_openWebButton->setEnabled(m_controller->isServerRunning() && !m_isStoppingServer);
+        m_openWebButton->setCursor(m_openWebButton->isEnabled() ? Qt::PointingHandCursor : Qt::ArrowCursor);
+        style()->unpolish(m_openWebButton);
+        style()->polish(m_openWebButton);
+    }
+
     if (m_isStoppingServer) {
         m_startStopButton->setText(tx(QStringLiteral("■  停止中…"), QStringLiteral("■  Stopping…")));
         m_startStopButton->setObjectName(QStringLiteral("StopButton"));
@@ -1524,6 +1691,66 @@ void MainWindow::showShareMenu()
     }
 }
 
+void MainWindow::showShareEditor(const ShareItem &share)
+{
+    if (!isDirectoryShare(share)) {
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tx(QStringLiteral("修改資料夾分享名稱"), QStringLiteral("Rename Folder Share")));
+    dialog.setMinimumWidth(sp(520));
+
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(sp(24), sp(22), sp(24), sp(20));
+    layout->setSpacing(sp(14));
+
+    auto *pathLabel = new QLabel(tx(QStringLiteral("實際路徑"), QStringLiteral("Folder Path")), &dialog);
+    pathLabel->setObjectName(QStringLiteral("FieldLabel"));
+    auto *pathEdit = new QLineEdit(&dialog);
+    pathEdit->setReadOnly(true);
+    pathEdit->setText(share.sourcePath.isEmpty() ? share.storagePath : share.sourcePath);
+
+    auto *nameLabel = new QLabel(tx(QStringLiteral("分享名稱"), QStringLiteral("Share Name")), &dialog);
+    nameLabel->setObjectName(QStringLiteral("FieldLabel"));
+    auto *nameEdit = new QLineEdit(&dialog);
+    nameEdit->setText(share.name);
+    nameEdit->selectAll();
+
+    auto *hint = new QLabel(tx(QStringLiteral("修改後，連線用戶在網頁上會看到新的資料夾名稱；實際資料夾路徑不會變更。"),
+                                  QStringLiteral("Visitors will see the new folder name on the web page. The actual folder path will not change.")),
+                             &dialog);
+    hint->setWordWrap(true);
+    hint->setObjectName(QStringLiteral("ShareEditorHint"));
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(tx(QStringLiteral("確認"), QStringLiteral("OK")));
+    buttons->button(QDialogButtonBox::Cancel)->setText(tx(QStringLiteral("取消"), QStringLiteral("Cancel")));
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    layout->addWidget(pathLabel);
+    layout->addWidget(pathEdit);
+    layout->addWidget(nameLabel);
+    layout->addWidget(nameEdit);
+    layout->addWidget(hint);
+    layout->addWidget(buttons);
+
+    nameEdit->setFocus();
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const QString newName = nameEdit->text().trimmed();
+    if (newName.isEmpty()) {
+        QMessageBox::warning(this,
+                             tx(QStringLiteral("分享名稱"), QStringLiteral("Share Name")),
+                             tx(QStringLiteral("分享名稱不可空白。"), QStringLiteral("The share name cannot be empty.")));
+        return;
+    }
+    m_controller->setShareName(share.id, newName);
+}
+
 void MainWindow::rebuildShareList()
 {
     while (QLayoutItem *item = m_shareListLayout->takeAt(0)) {
@@ -1550,16 +1777,52 @@ void MainWindow::rebuildShareList()
         cardLayout->setContentsMargins(sp(16), sp(12), sp(16), sp(12));
         cardLayout->setSpacing(sp(12));
 
-        auto *iconLabel = new QLabel(card);
-        iconLabel->setFixedSize(sp(48), sp(48));
-        iconLabel->setPixmap(buildShareIcon(share));
-        iconLabel->setScaledContents(true);
+        auto *iconButton = new QPushButton(card);
+        iconButton->setObjectName(QStringLiteral("ShareIconButton"));
+        iconButton->setFixedSize(sp(52), sp(52));
+        iconButton->setIcon(QIcon(buildShareIcon(share)));
+        iconButton->setIconSize(QSize(sp(48), sp(48)));
+        iconButton->setFlat(true);
+        iconButton->setCursor(Qt::ArrowCursor);
+        iconButton->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        iconButton->setFocusPolicy(Qt::NoFocus);
 
-        auto *nameLabel = new QLabel(share.name, card);
+        QWidget *nameArea = nullptr;
+        if (isDirectoryShare(share)) {
+            auto *nameButton = new QPushButton(card);
+            nameButton->setObjectName(QStringLiteral("ShareNameButton"));
+            nameButton->setFlat(true);
+            nameButton->setCursor(Qt::PointingHandCursor);
+            nameButton->setFocusPolicy(Qt::StrongFocus);
+            nameButton->setToolTip(tx(QStringLiteral("點擊查看路徑及修改分享名稱"),
+                                      QStringLiteral("Click to view the path and rename the share")));
+            connect(nameButton, &QPushButton::clicked, this, [this, share]() { showShareEditor(share); });
+            nameArea = nameButton;
+        } else {
+            nameArea = new QWidget(card);
+            nameArea->setObjectName(QStringLiteral("ShareNameArea"));
+        }
+        nameArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+        auto *nameLayout = new QVBoxLayout(nameArea);
+        nameLayout->setContentsMargins(sp(8), sp(4), sp(8), sp(4));
+        nameLayout->setSpacing(sp(3));
+
+        auto *nameLabel = new QLabel(share.name, nameArea);
         nameLabel->setObjectName(QStringLiteral("ShareTitle"));
         nameLabel->setWordWrap(false);
         nameLabel->setToolTip(share.sourcePath.isEmpty() ? share.storagePath : share.sourcePath);
-        nameLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        nameLabel->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+        nameLayout->addWidget(nameLabel);
+
+        if (isDirectoryShare(share)) {
+            auto *renameHint = new QLabel(tx(QStringLiteral("點擊後可更改分享名稱"),
+                                             QStringLiteral("Click to change the share name")),
+                                          nameArea);
+            renameHint->setObjectName(QStringLiteral("ShareRenameHint"));
+            renameHint->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+            nameLayout->addWidget(renameHint);
+        }
 
         auto *typeLabel = new QLabel(shareTypeLabel(share), card);
         typeLabel->setObjectName(QStringLiteral("ShareTypeBadge"));
@@ -1581,8 +1844,8 @@ void MainWindow::rebuildShareList()
             }
         });
 
-        cardLayout->addWidget(iconLabel);
-        cardLayout->addWidget(nameLabel, 1);
+        cardLayout->addWidget(iconButton);
+        cardLayout->addWidget(nameArea, 1);
 
         if (isDirectoryShare(share)) {
             auto *uploadCheck = new QCheckBox(tx(QStringLiteral("寫入"), QStringLiteral("Upload")), card);
@@ -1629,6 +1892,9 @@ void MainWindow::saveSystemSettingsFromForm()
     updatedSettings.download.resumeEnabled = m_resumeCheck->isChecked();
     updatedSettings.minimizeToTrayOnClose = m_closeToTrayCheck->isChecked();
     updatedSettings.launchOnStartup = m_launchOnStartupCheck->isChecked();
+    updatedSettings.startServerOnLaunch = updatedSettings.launchOnStartup
+                                              ? true
+                                              : m_startServerOnLaunchCheck->isChecked();
     updatedSettings.download.totalLimitValue = 0;
     updatedSettings.download.totalLimitUnit = QStringLiteral("KB/s");
     updatedSettings.download.perIpLimitEnabled = false;
@@ -1675,9 +1941,15 @@ void MainWindow::applyTheme()
                                     "QPushButton#SidebarButton:checked{background:#27233e;color:#b6a9ff;font-weight:800;}"
                                     "QPushButton#SecondaryButton{background:#1b2231;color:#d7deef;border:1px solid #303a50;}"
                                     "QPushButton#SecondaryButton:hover{background:#232c3e;border-color:#45516d;}"
+                                    "QPushButton#OpenWebButton{background:#1b2231;color:#d7deef;border:1px solid #303a50;}"
+                                    "QPushButton#OpenWebButton:hover{background:#232c3e;border-color:#45516d;}"
+                                    "QPushButton#OpenWebButton:disabled{background:#252c3a;color:#697386;border:1px solid #303746;}"
                                     "QPushButton#DangerButton,QPushButton#StopButton{background:#3a2430;color:#ff9aa5;border:1px solid #57323f;}"
                                     "QPushButton#DangerButton:hover,QPushButton#StopButton:hover{background:#4a2936;}"
                                     "QFrame#SidebarFooter,QFrame#InfoCard,QFrame#ShareCard,QFrame#ShareOptions,QFrame#StatCard{background:#171e2d;border:1px solid #2a3449;border-radius:18px;}"
+                                    "QFrame#TransferRow{background:#121927;border:1px solid #303a50;border-radius:14px;}"
+                                    "QLabel#TransferName{background:transparent;color:#eef2f9;font-weight:800;} QLabel#TransferStatus{background:#27233e;color:#b6a9ff;border-radius:9px;padding:4px 9px;font-weight:800;} QLabel#TransferDetail{background:transparent;color:#8f9bb0;}"
+                                    "QProgressBar{min-height:13px;background:#242d40;border:0;border-radius:6px;text-align:center;color:#ffffff;font-size:11px;font-weight:800;} QProgressBar::chunk{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #7657e8,stop:1 #4f6df5);border-radius:6px;}"
                                     "QFrame#DropArea{background:#182238;border:2px dashed #8ea0cf;border-radius:18px;}"
                                     "QFrame#TipBar{background:#182238;border:1px solid #34415f;border-radius:12px;}"
                                     "QLabel#StatusDot{background:#94a3b8;border-radius:5px;}"
@@ -1698,7 +1970,13 @@ void MainWindow::applyTheme()
                                     "#DropTitle{font-size:18px;font-weight:800;color:#e1e9ff;}"
                                     "#DropHint{font-size:13px;color:#9daccc;}"
                                     "#ShareTip{font-size:12px;color:#b9c7df;background:transparent;}"
-                                    "#ShareTitle{font-size:16px;font-weight:700;color:#edf1f8;}"
+                                    "QPushButton#ShareIconButton{background:transparent;border:0;padding:0;}"
+                                    "QWidget#ShareNameArea{background:transparent;border:0;}"
+                                    "QPushButton#ShareNameButton{background:transparent;border:0;border-radius:10px;padding:0;text-align:left;}"
+                                    "QPushButton#ShareNameButton:hover{background:#20283a;}"
+                                    "QPushButton#ShareNameButton:focus{border:1px solid #3a465f;}"
+                                    "#ShareTitle{font-size:16px;font-weight:700;color:#edf1f8;background:transparent;border:0;}"
+                                    "#ShareRenameHint{font-size:12px;color:#8f9bb0;background:transparent;border:0;font-weight:500;}"
                                     "#ShareSubtext,#EmptyState{color:#8f9bb0;}"
                                     "QLabel#FieldLabel{background:#1b2333;color:#cbd4e5;border:1px solid #303a50;border-radius:10px;padding:8px 10px;font-size:14px;font-weight:700;}"
                                     "QLabel#AboutBody{color:#cbd4e5;}"
@@ -1726,9 +2004,15 @@ void MainWindow::applyTheme()
                                     "QPushButton#SidebarButton:checked{background:#f0edff;color:#6654e8;font-weight:800;}"
                                     "QPushButton#SecondaryButton{background:#ffffff;color:#53627a;border:1px solid #dfe4ec;}"
                                     "QPushButton#SecondaryButton:hover{background:#f8f7ff;color:#5e50d9;border-color:#cfc7ff;}"
+                                    "QPushButton#OpenWebButton{background:#ffffff;color:#53627a;border:1px solid #dfe4ec;}"
+                                    "QPushButton#OpenWebButton:hover{background:#f8f7ff;color:#5e50d9;border-color:#cfc7ff;}"
+                                    "QPushButton#OpenWebButton:disabled{background:#eef1f5;color:#a7afbd;border:1px solid #e2e6ec;}"
                                     "QPushButton#DangerButton,QPushButton#StopButton{background:#fff0f2;color:#d94f5c;border:1px solid #ffd4d8;}"
                                     "QPushButton#DangerButton:hover,QPushButton#StopButton:hover{background:#ffe6e9;}"
                                     "QFrame#SidebarFooter,QFrame#InfoCard,QFrame#ShareCard,QFrame#ShareOptions,QFrame#StatCard{background:#ffffff;border:1px solid #e6eaf1;border-radius:18px;}"
+                                    "QFrame#TransferRow{background:#f8faff;border:1px solid #e0e7f2;border-radius:14px;}"
+                                    "QLabel#TransferName{background:transparent;color:#1f2d44;font-weight:800;} QLabel#TransferStatus{background:#f0edff;color:#6654e8;border-radius:9px;padding:4px 9px;font-weight:800;} QLabel#TransferDetail{background:transparent;color:#718096;}"
+                                    "QProgressBar{min-height:13px;background:#e8edf5;border:0;border-radius:6px;text-align:center;color:#25344d;font-size:11px;font-weight:800;} QProgressBar::chunk{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #7657e8,stop:1 #4f6df5);border-radius:6px;}"
                                     "QFrame#DropArea{background:#f6f7ff;border:2px dashed #8e97e8;border-radius:18px;}"
                                     "QFrame#TipBar{background:#f4f7ff;border:1px solid #d8e2ff;border-radius:12px;}"
                                     "QLabel#StatusDot{background:#94a3b8;border-radius:5px;}"
@@ -1749,7 +2033,13 @@ void MainWindow::applyTheme()
                                     "#DropTitle{font-size:18px;font-weight:800;color:#243c74;}"
                                     "#DropHint{font-size:13px;color:#7d899d;}"
                                     "#ShareTip{font-size:12px;color:#64748b;background:transparent;}"
-                                    "#ShareTitle{font-size:16px;font-weight:700;color:#1f2d44;}"
+                                    "QPushButton#ShareIconButton{background:transparent;border:0;padding:0;}"
+                                    "QWidget#ShareNameArea{background:transparent;border:0;}"
+                                    "QPushButton#ShareNameButton{background:transparent;border:0;border-radius:10px;padding:0;text-align:left;}"
+                                    "QPushButton#ShareNameButton:hover{background:#f2f5fa;}"
+                                    "QPushButton#ShareNameButton:focus{border:1px solid #d7dee9;}"
+                                    "#ShareTitle{font-size:16px;font-weight:700;color:#1f2d44;background:transparent;border:0;}"
+                                    "#ShareRenameHint{font-size:12px;color:#7b879b;background:transparent;border:0;font-weight:500;}"
                                     "#ShareSubtext,#EmptyState{color:#7d899d;}"
                                     "QLabel#FieldLabel{background:#f8f9fc;color:#526179;border:1px solid #e2e6ee;border-radius:10px;padding:8px 10px;font-size:14px;font-weight:700;}"
                                     "QLabel#AboutBody{color:#43516a;}"
@@ -1837,6 +2127,7 @@ void MainWindow::retranslateUi()
     if (m_lblLiveSpeedTitle) m_lblLiveSpeedTitle->setText(tx(QStringLiteral("即時傳輸速率"), QStringLiteral("Current Speed")));
 
     if (m_lblServerInfoTitle) m_lblServerInfoTitle->setText(tx(QStringLiteral("伺服器運作資訊"), QStringLiteral("Server Information")));
+    if (m_lblActiveTransfersTitle) m_lblActiveTransfersTitle->setText(tx(QStringLiteral("目前檔案下載與打包進度"), QStringLiteral("Current Downloads and Packaging")));
 
     if (m_btnSaveShares) m_btnSaveShares->setText(tx(QStringLiteral("儲存分享"), QStringLiteral("Save Shares")));
     if (m_btnAddShare) m_btnAddShare->setText(tx(QStringLiteral("新增分享"), QStringLiteral("Add Share")));
@@ -1860,6 +2151,7 @@ void MainWindow::retranslateUi()
     if (m_passwordEdit) m_passwordEdit->setPlaceholderText(tx(QStringLiteral("留空代表不需要下載密碼"), QStringLiteral("Leave empty for no download password")));
     if (m_resumeCheck) m_resumeCheck->setText(tx(QStringLiteral("啟用斷點續傳（支援 HTTP Range 請求）"), QStringLiteral("Enable Resumable Downloads (HTTP Range)")));
     if (m_closeToTrayCheck) m_closeToTrayCheck->setText(tx(QStringLiteral("關閉視窗時不直接退出，保持在系統列"), QStringLiteral("Close to system tray instead of exiting")));
+    if (m_startServerOnLaunchCheck) m_startServerOnLaunchCheck->setText(tx(QStringLiteral("啟動程式時自動啟用伺服器"), QStringLiteral("Automatically start server when the program opens")));
     if (m_launchOnStartupCheck) m_launchOnStartupCheck->setText(tx(QStringLiteral("開機時自動啟動並在系統列執行"), QStringLiteral("Launch on startup and minimize to tray")));
 
     if (m_themeCombo) {

@@ -107,6 +107,7 @@ QJsonObject toJson(const AppSettings &settings)
         {QStringLiteral("windowMaximized"), settings.windowMaximized},
         {QStringLiteral("minimizeToTrayOnClose"), settings.minimizeToTrayOnClose},
         {QStringLiteral("launchOnStartup"), settings.launchOnStartup},
+        {QStringLiteral("startServerOnLaunch"), settings.startServerOnLaunch},
         {QStringLiteral("clearSharesOnExit"), settings.clearSharesOnExit},
         {QStringLiteral("cloudflaredPath"), settings.cloudflaredPath},
         {QStringLiteral("uploadsRoot"), settings.uploadsRoot},
@@ -195,6 +196,10 @@ AppSettings appSettingsFromJson(const QJsonObject &object)
     settings.windowMaximized = object.value(QStringLiteral("windowMaximized")).toBool(false);
     settings.minimizeToTrayOnClose = object.value(QStringLiteral("minimizeToTrayOnClose")).toBool(true);
     settings.launchOnStartup = object.value(QStringLiteral("launchOnStartup")).toBool(false);
+    settings.startServerOnLaunch = object.value(QStringLiteral("startServerOnLaunch")).toBool(false);
+    if (settings.launchOnStartup) {
+        settings.startServerOnLaunch = true;
+    }
     settings.clearSharesOnExit = false;
     settings.cloudflaredPath = object.value(QStringLiteral("cloudflaredPath")).toString();
     settings.uploadsRoot = object.value(QStringLiteral("uploadsRoot")).toString();

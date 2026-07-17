@@ -38,6 +38,7 @@ signals:
     void activityEvent(const QString &message);
     void downloadRecorded(const DownloadRecord &record);
     void statsChanged(quint64 totalDownloads, quint64 totalBytes, int activeConnections, qint64 currentBytesPerSecond);
+    void activeTransfersChanged(const QList<ActiveTransferInfo> &transfers);
 
 private:
     struct ConnectionState {
@@ -66,13 +67,48 @@ private:
         qint64 startOffset = 0;
         qint64 endOffset = -1;
         qint64 remaining = 0;
-        qint64 bytesSent = 0;
+        qint64 totalBytes = 0;
+        qint64 bytesQueued = 0;
         bool success = true;
         bool trackAsDownload = true;
+        QString cleanupArchiveJobId;
     };
 
-    struct ChunkUploadSession {
-        QString tempPath;
+
+    struct ArchiveEntry {
+        QString sourcePath;
+        QString archivePath;
+        qint64 size = 0;
+        bool directory = false;
+        quint32 crc32 = 0;
+        quint32 localHeaderOffset = 0;
+        quint16 dosTime = 0;
+        quint16 dosDate = 0;
+    };
+
+    struct ArchiveJob {
+        QString id;
+        QString shareId;
+        QString sourcePath;
+        QString relativePath;
+        QString archiveName;
+        QString outputPath;
+        QString clientAddress;
+        QString state = QStringLiteral("packaging");
+        QString errorMessage;
+        QList<ArchiveEntry> entries;
+        int currentIndex = 0;
+        qint64 totalBytes = 0;
+        qint64 processedBytes = 0;
+        qint64 currentEntryBytes = 0;
+        quint32 currentCrc = 0xffffffffu;
+        QFile *outputFile = nullptr;
+        QFile *inputFile = nullptr;
+        QDateTime createdAt;
+        QDateTime finishedAt;
+    };
+
+    struct ChunkUploadSession {        QString tempPath;
         QString finalPath;
         QString fileName;
         QString clientAddress;
@@ -95,6 +131,17 @@ private:
     void cleanupUploadState(ConnectionState &state, bool removePartialFile);
     void removeChunkUploadSession(const QString &uploadId, bool removePartialFile);
     bool handleChunkUpload(QTcpSocket *socket, const QString &requestPath, const QUrlQuery &query, const QByteArray &body);
+    void handleArchiveStart(QTcpSocket *socket, const QUrlQuery &query);
+    void handleArchiveStatus(QTcpSocket *socket, const QUrlQuery &query);
+    void handleArchiveDownload(QTcpSocket *socket, const QUrlQuery &query, const QString &rangeHeader);
+    void processArchiveJobs();
+    void finishArchiveEntry(ArchiveJob *job);
+    void finishArchiveJob(ArchiveJob *job);
+    void failArchiveJob(ArchiveJob *job, const QString &message);
+    void cleanupArchiveJob(const QString &jobId, bool removeOutputFile = true);
+    void cleanupExpiredArchiveJobs();
+    void publishActiveTransfers();
+    [[nodiscard]] QList<ActiveTransferInfo> activeTransferSnapshot() const;
 
     void sendResponse(QTcpSocket *socket, int statusCode, const QByteArray &statusText, const QByteArray &body, const QByteArray &contentType);
     void sendRedirect(QTcpSocket *socket, const QString &target);
@@ -112,7 +159,8 @@ private:
                   const QString &relativePath,
                   const QString &rangeHeader,
                   bool trackAsDownload = true,
-                  bool inlineDisposition = false);
+                  bool inlineDisposition = false,
+                  const QString &cleanupArchiveJobId = QString());
 
     [[nodiscard]] bool isAuthenticated(const QMap<QString, QString> &headers) const;
     [[nodiscard]] QString authToken() const;
@@ -196,8 +244,12 @@ private:
     QHash<QTcpSocket *, ConnectionState> m_connections;
     QHash<QTcpSocket *, FileTransfer *> m_transfers;
     QHash<QString, ChunkUploadSession> m_chunkUploads;
+    QHash<QString, ArchiveJob *> m_archiveJobs;
     QTimer m_transferTimer;
     QTimer m_statsTimer;
+    QTimer m_archiveTimer;
+    QTimer m_activeTransfersTimer;
+    bool m_transferServicePending = false;
     quint64 m_totalDownloads = 0;
     quint64 m_totalBytes = 0;
     qint64 m_windowBytes = 0;

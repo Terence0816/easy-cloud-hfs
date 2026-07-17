@@ -3,6 +3,8 @@
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QList>
+#include <QMetaType>
 #include <QString>
 #include <QStringList>
 #include <QtGlobal>
@@ -39,6 +41,7 @@ struct AppSettings {
     bool windowMaximized = false;
     bool minimizeToTrayOnClose = true;
     bool launchOnStartup = false;
+    bool startServerOnLaunch = false;
     bool clearSharesOnExit = false;
     DownloadSettings download;
     QString cloudflaredPath;
@@ -71,6 +74,17 @@ struct DownloadRecord {
     QDateTime timestamp;
 };
 
+
+struct ActiveTransferInfo {
+    QString id;
+    QString fileName;
+    QString relativePath;
+    QString clientAddress;
+    QString status;
+    qint64 bytesProcessed = 0;
+    qint64 totalBytes = 0;
+};
+
 struct ServerStats {
     quint64 totalDownloads = 0;
     quint64 totalBytes = 0;
@@ -101,3 +115,6 @@ QString slugify(const QString &value);
 QString ensureUniqueRoute(const QString &preferred, const QList<ShareItem> &items);
 QString humanReadableSize(qint64 bytes);
 qint64 limitToBytesPerSecond(int value, const QString &unit);
+
+Q_DECLARE_METATYPE(ActiveTransferInfo)
+Q_DECLARE_METATYPE(QList<ActiveTransferInfo>)

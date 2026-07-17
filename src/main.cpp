@@ -1,4 +1,4 @@
-#include "app/Controller.h"
+﻿#include "app/Controller.h"
 #include "ui/MainWindow.h"
 
 #include <QApplication>
@@ -272,7 +272,7 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
     app.setApplicationName("Easy Cloud HFS");
-    app.setApplicationVersion(QStringLiteral("1.2.0.0"));
+    app.setApplicationVersion(QStringLiteral("1.2.2.0"));
     app.setOrganizationName("EasyCloudHFS");
     app.setWindowIcon(QIcon(":/desktop_logo.png"));
     app.setFont(QFont("Microsoft JhengHei UI", 10));
@@ -293,12 +293,11 @@ int main(int argc, char *argv[])
 
     const bool startupTrayLaunch = app.arguments().contains(QStringLiteral("--startup-tray"))
                                    && controller.settings().launchOnStartup;
+    const bool shouldStartServer = startupTrayLaunch || controller.settings().startServerOnLaunch;
+    const bool started = shouldStartServer ? controller.startServer() : false;
 
-    if (startupTrayLaunch) {
-        const bool started = controller.startServer();
-        if (!window.trayAvailable() || !started) {
-            window.showMainWindow();
-        }
+    if (startupTrayLaunch && window.trayAvailable() && started) {
+        // Keep the startup launch in the system tray.
     } else {
         window.showMainWindow();
     }

@@ -24,6 +24,7 @@ public:
 
     [[nodiscard]] const QList<ShareItem> &shares() const;
     [[nodiscard]] const QList<DownloadRecord> &downloads() const;
+    [[nodiscard]] const QList<ActiveTransferInfo> &activeTransfers() const;
     [[nodiscard]] const AppSettings &settings() const;
     [[nodiscard]] ServerStats stats() const;
     [[nodiscard]] bool isServerRunning() const;
@@ -54,6 +55,7 @@ public slots:
     void addLinkShare(const QString &name, const QString &url);
     void removeShare(const QString &id);
     void setShareEnabled(const QString &id, bool enabled);
+    void setShareName(const QString &id, const QString &name);
     void setShareAllowUpload(const QString &id, bool allowUpload);
     void setShareAllowDelete(const QString &id, bool allowDelete);
     void setShareAllowCreateDirectory(const QString &id, bool allowCreateDirectory);
@@ -76,6 +78,7 @@ public slots:
 signals:
     void sharesChanged();
     void downloadsChanged();
+    void activeTransfersChanged();
     void settingsChanged();
     void statsChanged();
     void serverStateChanged(bool running);
@@ -122,6 +125,7 @@ private:
     AppSettings m_settings;
     QList<ShareItem> m_shares;
     QList<DownloadRecord> m_downloads;
+    QList<ActiveTransferInfo> m_activeTransfers;
     ServerStats m_stats;
     QString m_statusMessage;
     QStringList m_activityLog;
