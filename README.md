@@ -18,6 +18,20 @@ This project is designed as a portable Windows desktop tool with a native C++ / 
 
 > This project is source-available for personal, educational, research, and non-commercial use only.
 
+## Latest Update — v1.2.2.8
+
+* Added an **Open Web Page** button next to the server control button on the main screen, making it easier to view the configured file-sharing webpage.
+* Added support for changing the display name of a shared folder by clicking its folder name. The actual local folder path remains unchanged, while web visitors will see the newly configured share name.
+* Added **Current File Download and Packaging Progress** to the dashboard, allowing the server administrator to clearly view the file name and download progress of each active transfer.
+* Added an **Automatically Start Server When Application Starts** option in System Settings, allowing the server service to start automatically when the application is launched manually.
+
+## Web Interface
+
+* Added the ability to package and download shared folders as ZIP files, making it easier to download an entire folder.
+* Improved the file list so that images, videos, audio files, and regular files now display their file sizes.
+* Added a clearly visible **Direct Download** button on the right side of regular files.
+
+
 ## Latest Update — v1.2.2.0
 
 Easy Cloud HFS Windows v1.2.2.0 adds optional browser-based chat for shared pages, improves share management usability, optimizes text scaling for high-resolution displays, and fixes duplicate application launches.
@@ -304,6 +318,19 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 本專案設計為原生 C++ / Qt Widgets 的 Windows 桌面工具，重點是簡單、直覺、免安裝與可攜式使用。
 
 > 本專案原始碼僅供個人、學習、研究與非商業用途使用。
+
+## v1.2.2.8 主要更新
+
+主控台部份：
+* 新增 主畫面伺服器控制按鈕旁新增 **開啟連結網頁** 按鈕，方便查看設定的分享網頁內容。
+* 新增 分享資料夾時，可以點擊資料夾名稱後，可以修改分享的名稱，但實際路徑不會變，網頁瀏覽即可看到設定的資料夾名稱
+* 新增 儀表板 **目前檔案下載與打包進度** ，可以清楚看到下載者的檔案名稱及下載進度
+* 新增 系統設定 **啟動程式時自動啟用伺服器** 選項，以便手動啟動時，就會直接啟動服務器
+
+網頁部份：
+* 新增 網頁遇到增資料夾目錄，可以選擇打包後下載，方便下載目錄的功能。
+* 優化 圖片、影片、音樂及一般檔案現在都會在網頁列表中顯示檔案大小。
+* 優化 一般檔案右側新增明確的 **直接下載** 按鈕。
 
 ## v1.2.2.0 主要更新
 
