@@ -18,6 +18,10 @@ class QComboBox;
 class QProgressBar;
 class QSystemTrayIcon;
 class QMenu;
+class QFile;
+class QNetworkAccessManager;
+class QNetworkReply;
+class QProgressDialog;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -46,6 +50,15 @@ private:
         AboutPage
     };
 
+    enum class UpdateState {
+        NotChecked,
+        Checking,
+        UpToDate,
+        Available,
+        Downloading,
+        Error
+    };
+
     void buildUi();
     void buildSidebar(QHBoxLayout *rootLayout);
     void buildContent(QHBoxLayout *rootLayout);
@@ -60,6 +73,12 @@ private:
     void refreshSettingsForms();
     void refreshAbout();
     void refreshHeaderTitle();
+    void checkForUpdates();
+    void handleAboutLink(const QString &link);
+    void startLatestUpdate();
+    void finishUpdateDownload();
+    [[nodiscard]] bool scheduleSelfUpdate(const QString &downloadedPath);
+    [[nodiscard]] QString updateStatusHtml() const;
     void refreshStartStopButton();
     void updateExternalLinkUiState();
     void updateStatusVisuals(const QString &status);
@@ -159,6 +178,19 @@ private:
 
     QLabel *m_lblAboutTitle = nullptr;
     QLabel *m_aboutLabel = nullptr;
+
+    QNetworkAccessManager *m_updateNetwork = nullptr;
+    QNetworkReply *m_updateCheckReply = nullptr;
+    QNetworkReply *m_updateDownloadReply = nullptr;
+    QFile *m_updateFile = nullptr;
+    QProgressDialog *m_updateProgressDialog = nullptr;
+    UpdateState m_updateState = UpdateState::NotChecked;
+    QString m_latestVersion;
+    QString m_latestDownloadUrl;
+    QString m_latestAssetName;
+    qint64 m_latestAssetSize = -1;
+    QString m_updateDownloadPath;
+    QString m_updateDownloadError;
     QSystemTrayIcon *m_trayIcon = nullptr;
     QMenu *m_trayMenu = nullptr;
     class QAction *m_trayShowAction = nullptr;

@@ -838,6 +838,7 @@ void HttpFileServer::processRequest(QTcpSocket *socket, ConnectionState &state)
 
     if (!m_downloadSettings.password.isEmpty()
         && path != QStringLiteral("/__auth")
+        && path != QStringLiteral("/__logout")
         && path != QStringLiteral("/chat")
         && !path.startsWith(QStringLiteral("/__chat/"))
         && !(potplayerRequest && query.queryItemValue(QStringLiteral("k"), QUrl::FullyDecoded) == authToken())
@@ -853,7 +854,8 @@ void HttpFileServer::processRequest(QTcpSocket *socket, ConnectionState &state)
             QByteArray response;
             response += QByteArrayLiteral("HTTP/1.1 302 Found\r\n");
             response += QByteArrayLiteral("Location: /\r\n");
-            response += QByteArrayLiteral("Set-Cookie: hfs_auth=") + authToken().toUtf8() + QByteArrayLiteral("; Path=/; Max-Age=86400\r\n");
+            response += QByteArrayLiteral("Set-Cookie: hfs_auth=") + authToken().toUtf8()
+                        + QByteArrayLiteral("; Path=/; Max-Age=86400; SameSite=Lax; HttpOnly\r\n");
             response += QByteArrayLiteral("Connection: close\r\n");
             response += QByteArrayLiteral("Content-Length: 0\r\n\r\n");
             socket->write(response);
@@ -863,6 +865,20 @@ void HttpFileServer::processRequest(QTcpSocket *socket, ConnectionState &state)
         }
 
         sendUnauthorized(socket, true);
+        return;
+    }
+
+    if (path == QStringLiteral("/__logout")) {
+        QByteArray response;
+        response += QByteArrayLiteral("HTTP/1.1 302 Found\r\n");
+        response += QByteArrayLiteral("Location: /\r\n");
+        response += QByteArrayLiteral("Set-Cookie: hfs_auth=; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax; HttpOnly\r\n");
+        response += QByteArrayLiteral("Cache-Control: no-store\r\n");
+        response += QByteArrayLiteral("Connection: close\r\n");
+        response += QByteArrayLiteral("Content-Length: 0\r\n\r\n");
+        socket->write(response);
+        emit activityEvent(QStringLiteral("%1 已登出下載頁面").arg(detectClientAddress(socket)));
+        socket->disconnectFromHost();
         return;
     }
 
@@ -2680,7 +2696,7 @@ body{margin:0;background:#eef4ff;color:#17304f;font-family:'Microsoft JhengHei U
 </style></head><body><div class='wrap'><div class='hero'><img src='/__logo'><div><h1>%1 聊天室</h1><div class='sub'>自由留言 · 訪客免登入 · 留言顯示 IP</div></div></div><div class='panel'><div id='messages' class='messages'></div><div class='form'><input id='name' maxlength='30' placeholder='名稱（可留空）'><textarea id='message' maxlength='1000' placeholder='輸入留言…'></textarea><button id='send'>送出</button></div><div class='note'>Enter 送出，Shift+Enter 換行。聊天室名稱會跟隨 HFS 名稱。</div></div></div><script>
 const box=document.getElementById('messages'),nameEl=document.getElementById('name'),msgEl=document.getElementById('message');function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}async function load(){try{const r=await fetch('/__chat/messages',{cache:'no-store'});if(!r.ok)return;const a=await r.json();box.innerHTML=a.map(x=>`<div class="msg"><div class="top"><span class="name">${esc(x.name)}</span><span class="time">${esc(x.time)}</span><span class="ip">IP: ${esc(x.ip)}</span></div><div class="text">${esc(x.message)}</div></div>`).join('');box.scrollTop=box.scrollHeight}catch(e){}}async function send(){const m=msgEl.value.trim();if(!m)return;const body=new URLSearchParams({name:nameEl.value,message:m});const r=await fetch('/__chat/send',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body});if(r.ok){msgEl.value='';await load();msgEl.focus()}}document.getElementById('send').onclick=send;msgEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});load();setInterval(load,2000);
 </script></body></html>)HTML").arg(escapeHtml(m_siteName));
-    return localizeWebHtml(html).toUtf8();
+    return localizeWebHtml(html, false).toUtf8();
 }
 
 QByteArray HttpFileServer::renderLoginPage(bool badPassword) const
@@ -2707,7 +2723,7 @@ QByteArray HttpFileServer::renderLoginPage(bool badPassword) const
         "<button type='submit'>進入下載頁面</button>"
         "</form></div></body></html>")
                              .arg(escapeHtml(m_siteName), alert);
-    return localizeWebHtml(html).toUtf8();
+    return localizeWebHtml(html, false).toUtf8();
 }
 
 QByteArray HttpFileServer::renderDirectoryPage(const ShareItem &share,
@@ -4301,7 +4317,7 @@ QString HttpFileServer::webTx(const QString &zh, const QString &en) const
     return m_webLanguage.compare(QStringLiteral("English"), Qt::CaseInsensitive) == 0 ? en : zh;
 }
 
-QString HttpFileServer::localizeWebHtml(QString html) const
+QString HttpFileServer::localizeWebHtml(QString html, bool includeLogout) const
 {
     const bool english = m_webLanguage.compare(QStringLiteral("English"), Qt::CaseInsensitive) == 0;
 
@@ -4338,6 +4354,7 @@ QString HttpFileServer::localizeWebHtml(QString html) const
         {QStringLiteral("此分享頁面已加上下載密碼。請輸入正確密碼後繼續。"), QStringLiteral("This share is password-protected. Enter the correct password to continue.")},
         {QStringLiteral("請輸入下載密碼"), QStringLiteral("Enter download password")},
         {QStringLiteral("進入下載頁面"), QStringLiteral("Continue")},
+        {QStringLiteral(">登出</a>"), QStringLiteral(">Log out</a>")},
         {QStringLiteral("aria-label='選取 "), QStringLiteral("aria-label='Select ")},
         {QStringLiteral("<div class='row-note'>資料夾</div>"), QStringLiteral("<div class='row-note'>Folder</div>")},
         {QStringLiteral("<div class='row-size'>資料夾</div>"), QStringLiteral("<div class='row-size'>Folder</div>")},
@@ -4452,6 +4469,21 @@ QString HttpFileServer::localizeWebHtml(QString html) const
     } else {
         html.replace(QStringLiteral("<!doctype html><html><head>"),
                      QStringLiteral("<!doctype html><html lang='zh-Hant'><head>"));
+    }
+
+    if (includeLogout && !m_downloadSettings.password.isEmpty()) {
+        const QString logoutHtml = QStringLiteral(
+            "<style id='hfs-logout-style'>"
+            ".hfs-logout-link{position:fixed;top:14px;right:132px;z-index:9999;display:inline-flex;align-items:center;justify-content:center;height:40px;padding:0 16px;border:1px solid rgba(132,146,171,.24);border-radius:999px;background:rgba(255,255,255,.92);box-shadow:0 8px 24px rgba(30,42,68,.12);backdrop-filter:blur(10px);color:#53647f;text-decoration:none;font-family:'Microsoft JhengHei UI','Segoe UI',sans-serif;font-size:13px;font-weight:800;transition:.16s ease;}"
+            ".hfs-logout-link:hover{background:#fff2f2;border-color:#ffc6c6;color:#df4d5c;}"
+            "@media(max-width:640px){.hfs-logout-link{top:auto;right:126px;bottom:10px;height:38px;padding:0 13px}}"
+            "</style><a class='hfs-logout-link' href='/__logout'>登出</a>");
+        const qsizetype logoutBodyEnd = html.lastIndexOf(QStringLiteral("</body>"), -1, Qt::CaseInsensitive);
+        if (logoutBodyEnd >= 0) {
+            html.insert(logoutBodyEnd, logoutHtml);
+        } else {
+            html += logoutHtml;
+        }
     }
 
     const QString zhClass = english ? QString() : QStringLiteral(" active");

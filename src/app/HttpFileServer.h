@@ -212,7 +212,7 @@ private:
     [[nodiscard]] QByteArray serveLogo() const;
     [[nodiscard]] QString escapeHtml(const QString &value) const;
     [[nodiscard]] QString webTx(const QString &zh, const QString &en) const;
-    [[nodiscard]] QString localizeWebHtml(QString html) const;
+    [[nodiscard]] QString localizeWebHtml(QString html, bool includeLogout = true) const;
     [[nodiscard]] QString routeForShare(const ShareItem &share) const;
     [[nodiscard]] QString mediaRelayUrl(const ShareItem &share,
                                         const QString &relativePath = QString()) const;

@@ -272,7 +272,7 @@ int main(int argc, char *argv[])
 
     QApplication app(argc, argv);
     app.setApplicationName("Easy Cloud HFS");
-    app.setApplicationVersion(QStringLiteral("1.2.2.0"));
+    app.setApplicationVersion(QStringLiteral("1.2.2.8"));
     app.setOrganizationName("EasyCloudHFS");
     app.setWindowIcon(QIcon(":/desktop_logo.png"));
     app.setFont(QFont("Microsoft JhengHei UI", 10));

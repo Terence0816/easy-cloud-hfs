@@ -19,6 +19,7 @@
 #include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -29,16 +30,24 @@
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QIcon>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
 #include <QPixmap>
+#include <QProcess>
 #include <QProgressBar>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QScreen>
@@ -56,6 +65,7 @@
 #include <QToolTip>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVersionNumber>
 #include <QWheelEvent>
 
 #include <cmath>
@@ -63,6 +73,23 @@
 
 namespace {
 qreal g_uiScale = 1.0;
+
+const QString kLatestReleaseApiUrl = QStringLiteral("https://api.github.com/repos/Terence0816/easy-cloud-hfs/releases/latest");
+
+QString normalizedVersionTag(QString version)
+{
+    version = version.trimmed();
+    static const QRegularExpression versionPattern(
+        QStringLiteral(R"((\d+(?:\.\d+){2,3}))"));
+    const QRegularExpressionMatch match = versionPattern.match(version);
+    return match.hasMatch() ? match.captured(1) : QString();
+}
+
+QString vbStringLiteral(QString value)
+{
+    value.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QStringLiteral("\"") + value + QStringLiteral("\"");
+}
 
 qreal calculateUiScale()
 {
@@ -514,6 +541,7 @@ MainWindow::MainWindow(Controller *controller, QWidget *parent)
     resize(qMin(sp(1380), safeWidth), qMin(sp(820), safeHeight));
 
     buildUi();
+    m_updateNetwork = new QNetworkAccessManager(this);
     setupTrayIcon();
     restoreWindowSettings();
     refreshAll();
@@ -538,6 +566,8 @@ MainWindow::MainWindow(Controller *controller, QWidget *parent)
     connect(m_controller, &Controller::urlsChanged, this, &MainWindow::refreshShares);
     connect(m_controller, &Controller::tunnelStateChanged, this, &MainWindow::refreshFooter);
     connect(m_controller, &Controller::tunnelStateChanged, this, &MainWindow::refreshShares);
+
+    QTimer::singleShot(500, this, &MainWindow::checkForUpdates);
 }
 
 bool MainWindow::trayAvailable() const
@@ -712,7 +742,7 @@ void MainWindow::buildSidebar(QHBoxLayout *rootLayout)
     m_brandSubtitle->setObjectName(QStringLiteral("BrandSub"));
     m_brandSubtitle->setAlignment(Qt::AlignCenter);
 
-    auto *brandVersion = new QLabel(QStringLiteral("V1.2.2.0"), brandBox);
+    auto *brandVersion = new QLabel(QStringLiteral("V1.2.2.8"), brandBox);
     brandVersion->setObjectName(QStringLiteral("BrandVersion"));
     brandVersion->setAlignment(Qt::AlignCenter);
 
@@ -1207,7 +1237,8 @@ void MainWindow::buildPages()
     m_aboutLabel->setWordWrap(true);
     m_aboutLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_aboutLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
-    m_aboutLabel->setOpenExternalLinks(true);
+    m_aboutLabel->setOpenExternalLinks(false);
+    connect(m_aboutLabel, &QLabel::linkActivated, this, &MainWindow::handleAboutLink);
     aboutCardLayout->addWidget(m_lblAboutTitle);
     aboutCardLayout->addWidget(m_aboutLabel);
     aboutLayout->addWidget(aboutCard);
@@ -1218,6 +1249,9 @@ void MainWindow::buildPages()
 void MainWindow::switchPage(PageIndex page, const QString &title)
 {
     m_pages->setCurrentIndex(static_cast<int>(page));
+    if (page == AboutPage && m_updateState == UpdateState::NotChecked) {
+        checkForUpdates();
+    }
     Q_UNUSED(title)
 }
 
@@ -1510,64 +1544,477 @@ void MainWindow::refreshHeaderTitle()
     m_pageTitle->setText(tx(QStringLiteral("%1 - 檔案分享伺服器").arg(siteName), QStringLiteral("%1 - File Sharing Server").arg(siteName)));
 }
 
+QString MainWindow::updateStatusHtml() const
+{
+    const QString linkStyle = QStringLiteral("style='color:#5f55df;text-decoration:none;font-weight:800;'");
+    const QString latest = m_latestVersion.isEmpty()
+                               ? QStringLiteral("v—")
+                               : QStringLiteral("v") + m_latestVersion.toHtmlEscaped();
+
+    switch (m_updateState) {
+    case UpdateState::Checking:
+        return tx(QStringLiteral("GitHub 目前最新版本：檢查中…"),
+                  QStringLiteral("Latest GitHub version: Checking..."));
+    case UpdateState::UpToDate:
+        return tx(QStringLiteral("GitHub 目前最新版本：<b>%1</b>（目前已是最新版本）").arg(latest),
+                  QStringLiteral("Latest GitHub version: <b>%1</b> (You are up to date)").arg(latest));
+    case UpdateState::Available:
+        return tx(QStringLiteral("GitHub 目前最新版本：<b>%1</b>　<a %2 href='easycloudhfs://update'>點擊更新版本</a>")
+                      .arg(latest, linkStyle),
+                  QStringLiteral("Latest GitHub version: <b>%1</b>　<a %2 href='easycloudhfs://update'>Click to update</a>")
+                      .arg(latest, linkStyle));
+    case UpdateState::Downloading:
+        return tx(QStringLiteral("GitHub 目前最新版本：<b>%1</b>（正在下載更新…）").arg(latest),
+                  QStringLiteral("Latest GitHub version: <b>%1</b> (Downloading update...)").arg(latest));
+    case UpdateState::Error:
+        if (!m_latestVersion.isEmpty() && m_latestDownloadUrl.isEmpty()) {
+            return tx(QStringLiteral("GitHub 目前最新版本：<b>%1</b>（找不到可自動更新的 EXE）　<a %2 href='%3'>開啟 Releases</a>")
+                          .arg(latest, linkStyle, QStringLiteral("https://github.com/Terence0816/easy-cloud-hfs/releases")),
+                      QStringLiteral("Latest GitHub version: <b>%1</b> (No executable asset found)　<a %2 href='%3'>Open Releases</a>")
+                          .arg(latest, linkStyle, QStringLiteral("https://github.com/Terence0816/easy-cloud-hfs/releases")));
+        }
+        return tx(QStringLiteral("GitHub 目前最新版本：無法取得　<a %1 href='easycloudhfs://check'>重新檢查</a>").arg(linkStyle),
+                  QStringLiteral("Latest GitHub version: Unavailable　<a %1 href='easycloudhfs://check'>Check again</a>").arg(linkStyle));
+    case UpdateState::NotChecked:
+    default:
+        return tx(QStringLiteral("GitHub 目前最新版本：尚未檢查　<a %1 href='easycloudhfs://check'>立即檢查</a>").arg(linkStyle),
+                  QStringLiteral("Latest GitHub version: Not checked　<a %1 href='easycloudhfs://check'>Check now</a>").arg(linkStyle));
+    }
+}
+
 void MainWindow::refreshAbout()
 {
-    m_aboutLabel->setText(scaleStyleSheetPixels(tx(
-        QStringLiteral(
-            "<div style='font-size:22px; font-weight:700; line-height:1.85;'>"
-            "Easy Cloud HFS<br>"
-            "輕量、直接、可自行部署的桌面檔案分享工具。"
-            "</div>"
-            "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
-            "支援快速建立分享、資料夾上傳、下載紀錄與外部連線。<br>"
-            "啟用外部連結後，程式可透過 Cloudflare Tunnel 建立公開入口。<br>"
-            "代理連接完成後，可直接點擊下方連結複製分享網址。"
-            "</div>"
-            "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
-            "本工具適合臨時檔案分享、內部測試、遠端協助與自架分享環境使用。<br>"
-            "分享前請自行確認檔案內容、權限設定與網路安全性。"
-            "</div>"
-            "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
-            "作者：Terence0816<br>"
-            "GitHub：<a href='https://github.com/Terence0816/EasyCloudHFS'>https://github.com/Terence0816/EasyCloudHFS</a><br>"
-            "版本：v1.2.2.0"
-            "</div>"
-            "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
-            "授權聲明：<br>"
-            "本專案原始碼僅提供檢視、學習與個人參考用途。<br>"
-            "未經作者事前書面同意，不得商業使用、重新散布、重新打包或製作衍生作品。"
-            "</div>"
-            "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
-            "本專案為獨立開發工具，並非 Cloudflare 官方產品。"
-            "</div>"),
-        QStringLiteral(
-            "<div style='font-size:22px; font-weight:700; line-height:1.85;'>"
-            "Easy Cloud HFS<br>"
-            "Lightweight, direct, self-hosted desktop file sharing tool."
-            "</div>"
-            "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
-            "Supports quick sharing, folder upload, download logs, and WAN connections.<br>"
-            "When WAN proxy is enabled, it sets up a public tunnel via Cloudflare Tunnel.<br>"
-            "Once connected, click the links below to copy the sharing URLs."
-            "</div>"
-            "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
-            "Ideal for temporary file sharing, internal testing, remote support, and personal hosting.<br>"
-            "Please verify your file contents, permission settings, and network safety before sharing."
-            "</div>"
-            "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
-            "Author: Terence0816<br>"
-            "GitHub: <a href='https://github.com/Terence0816/EasyCloudHFS'>https://github.com/Terence0816/EasyCloudHFS</a><br>"
-            "Version: v1.2.2.0"
-            "</div>"
-            "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
-            "License Notice:<br>"
-            "This project's source code is provided for reference, learning, and personal use only.<br>"
-            "Commercial use, redistribution, repackaging, or derivative work is strictly prohibited without prior written consent from the author."
-            "</div>"
-            "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
-            "This is an independent tool and is not an official Cloudflare product."
-            "</div>")
-    ), g_uiScale));
+    const QString updateLine = updateStatusHtml();
+    const QString zhHtml = QStringLiteral(
+        "<div style='font-size:22px; font-weight:700; line-height:1.85;'>"
+        "Easy Cloud HFS<br>"
+        "輕量、直接、可自行部署的桌面檔案分享工具。"
+        "</div>"
+        "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
+        "支援快速建立分享、資料夾上傳、下載紀錄與外部連線。<br>"
+        "啟用外部連結後，程式可透過 Cloudflare Tunnel 建立公開入口。<br>"
+        "代理連接完成後，可直接點擊下方連結複製分享網址。"
+        "</div>"
+        "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
+        "本工具適合臨時檔案分享、內部測試、遠端協助與自架分享環境使用。<br>"
+        "分享前請自行確認檔案內容、權限設定與網路安全性。"
+        "</div>"
+        "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
+        "作者：Terence0816<br>"
+        "GitHub：<a href='https://github.com/Terence0816/easy-cloud-hfs'>https://github.com/Terence0816/easy-cloud-hfs</a><br>"
+        "版本：v1.2.2.8<br>"
+        "%1"
+        "</div>"
+        "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
+        "授權聲明：<br>"
+        "本專案原始碼僅提供檢視、學習與個人參考用途。<br>"
+        "未經作者事前書面同意，不得商業使用、重新散布、重新打包或製作衍生作品。"
+        "</div>"
+        "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
+        "本專案為獨立開發工具，並非 Cloudflare 官方產品。"
+        "</div>").arg(updateLine);
+
+    const QString enHtml = QStringLiteral(
+        "<div style='font-size:22px; font-weight:700; line-height:1.85;'>"
+        "Easy Cloud HFS<br>"
+        "Lightweight, direct, self-hosted desktop file sharing tool."
+        "</div>"
+        "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
+        "Supports quick sharing, folder upload, download logs, and WAN connections.<br>"
+        "When WAN proxy is enabled, it sets up a public tunnel via Cloudflare Tunnel.<br>"
+        "Once connected, click the links below to copy the sharing URLs."
+        "</div>"
+        "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
+        "Ideal for temporary file sharing, internal testing, remote support, and personal hosting.<br>"
+        "Please verify your file contents, permission settings, and network safety before sharing."
+        "</div>"
+        "<div style='margin-top:24px; font-size:19px; line-height:1.9;'>"
+        "Author: Terence0816<br>"
+        "GitHub: <a href='https://github.com/Terence0816/easy-cloud-hfs'>https://github.com/Terence0816/easy-cloud-hfs</a><br>"
+        "Version: v1.2.2.8<br>"
+        "%1"
+        "</div>"
+        "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
+        "License Notice:<br>"
+        "This project's source code is provided for reference, learning, and personal use only.<br>"
+        "Commercial use, redistribution, repackaging, or derivative work is strictly prohibited without prior written consent from the author."
+        "</div>"
+        "<div style='margin-top:24px; font-size:18px; line-height:1.9;'>"
+        "This is an independent tool and is not an official Cloudflare product."
+        "</div>").arg(updateLine);
+
+    m_aboutLabel->setText(scaleStyleSheetPixels(tx(zhHtml, enHtml), g_uiScale));
+}
+
+void MainWindow::handleAboutLink(const QString &link)
+{
+    if (link.compare(QStringLiteral("easycloudhfs://check"), Qt::CaseInsensitive) == 0) {
+        checkForUpdates();
+        return;
+    }
+    if (link.compare(QStringLiteral("easycloudhfs://update"), Qt::CaseInsensitive) == 0) {
+        startLatestUpdate();
+        return;
+    }
+    QDesktopServices::openUrl(QUrl(link));
+}
+
+void MainWindow::checkForUpdates()
+{
+    if (!m_updateNetwork || m_updateCheckReply || m_updateDownloadReply) {
+        return;
+    }
+
+    m_updateState = UpdateState::Checking;
+    m_latestVersion.clear();
+    m_latestDownloadUrl.clear();
+    m_latestAssetName.clear();
+    m_latestAssetSize = -1;
+    refreshAbout();
+
+    QNetworkRequest request{QUrl(kLatestReleaseApiUrl)};
+    request.setRawHeader("User-Agent", "EasyCloudHFS-Updater");
+    request.setRawHeader("Accept", "application/vnd.github+json");
+    request.setRawHeader("X-GitHub-Api-Version", "2022-11-28");
+#if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+#endif
+
+    m_updateCheckReply = m_updateNetwork->get(request);
+    connect(m_updateCheckReply, &QNetworkReply::finished, this, [this]() {
+        QNetworkReply *reply = m_updateCheckReply;
+        m_updateCheckReply = nullptr;
+        if (!reply) {
+            return;
+        }
+
+        const QByteArray payload = reply->readAll();
+        const QNetworkReply::NetworkError networkError = reply->error();
+        reply->deleteLater();
+
+        if (networkError != QNetworkReply::NoError) {
+            m_updateState = UpdateState::Error;
+            refreshAbout();
+            return;
+        }
+
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            m_updateState = UpdateState::Error;
+            refreshAbout();
+            return;
+        }
+
+        const QJsonObject release = document.object();
+        m_latestVersion = normalizedVersionTag(release.value(QStringLiteral("tag_name")).toString());
+        if (m_latestVersion.isEmpty()) {
+            m_updateState = UpdateState::Error;
+            refreshAbout();
+            return;
+        }
+
+        int bestRank = 100;
+        const QJsonArray assets = release.value(QStringLiteral("assets")).toArray();
+        for (const QJsonValue &assetValue : assets) {
+            const QJsonObject asset = assetValue.toObject();
+            const QString name = asset.value(QStringLiteral("name")).toString().trimmed();
+            const QString url = asset.value(QStringLiteral("browser_download_url")).toString().trimmed();
+            if (name.isEmpty() || url.isEmpty() || !name.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
+                continue;
+            }
+
+            int rank = 3;
+            if (name.compare(QStringLiteral("EasyCloudHFS.exe"), Qt::CaseInsensitive) == 0) {
+                rank = 0;
+            } else if (name.contains(QStringLiteral("EasyCloudHFS"), Qt::CaseInsensitive)) {
+                rank = 1;
+            } else if (name.contains(QStringLiteral("Easy Cloud HFS"), Qt::CaseInsensitive)) {
+                rank = 2;
+            }
+
+            if (rank < bestRank) {
+                bestRank = rank;
+                m_latestAssetName = name;
+                m_latestDownloadUrl = url;
+                m_latestAssetSize = asset.value(QStringLiteral("size")).toVariant().toLongLong();
+            }
+        }
+
+        const QVersionNumber currentVersion = QVersionNumber::fromString(
+            normalizedVersionTag(QCoreApplication::applicationVersion()));
+        const QVersionNumber latestVersion = QVersionNumber::fromString(m_latestVersion);
+        if (latestVersion.isNull()) {
+            m_updateState = UpdateState::Error;
+        } else if (QVersionNumber::compare(latestVersion, currentVersion) <= 0) {
+            m_updateState = UpdateState::UpToDate;
+        } else if (m_latestDownloadUrl.isEmpty()) {
+            m_updateState = UpdateState::Error;
+        } else {
+            m_updateState = UpdateState::Available;
+        }
+        refreshAbout();
+    });
+}
+
+void MainWindow::startLatestUpdate()
+{
+    if (m_updateState != UpdateState::Available || m_latestDownloadUrl.isEmpty() || !m_updateNetwork) {
+        checkForUpdates();
+        return;
+    }
+
+    const QString versionText = QStringLiteral("v") + m_latestVersion;
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this,
+        tx(QStringLiteral("更新 Easy Cloud HFS"), QStringLiteral("Update Easy Cloud HFS")),
+        tx(QStringLiteral("即將下載 %1。下載完成後程式會自動關閉、替換目前版本並重新啟動。\n\n要現在更新嗎？").arg(versionText),
+           QStringLiteral("Version %1 will be downloaded. After the download, the app will close, replace the current executable, and restart automatically.\n\nUpdate now?").arg(versionText)),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::Yes);
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    m_updateDownloadPath = QCoreApplication::applicationFilePath() + QStringLiteral(".update");
+    QFile::remove(m_updateDownloadPath);
+    m_updateDownloadError.clear();
+
+    m_updateFile = new QFile(m_updateDownloadPath, this);
+    if (!m_updateFile->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        const QString error = m_updateFile->errorString();
+        m_updateFile->deleteLater();
+        m_updateFile = nullptr;
+        QMessageBox::critical(this,
+                              tx(QStringLiteral("無法更新"), QStringLiteral("Update Failed")),
+                              tx(QStringLiteral("無法在程式所在資料夾建立更新檔案：\n%1").arg(error),
+                                 QStringLiteral("Unable to create the update file in the application folder:\n%1").arg(error)));
+        return;
+    }
+
+    m_updateProgressDialog = new QProgressDialog(
+        tx(QStringLiteral("正在下載 %1…").arg(versionText), QStringLiteral("Downloading %1...").arg(versionText)),
+        tx(QStringLiteral("取消"), QStringLiteral("Cancel")),
+        0,
+        1000,
+        this);
+    m_updateProgressDialog->setWindowTitle(tx(QStringLiteral("程式更新"), QStringLiteral("Application Update")));
+    m_updateProgressDialog->setWindowModality(Qt::WindowModal);
+    m_updateProgressDialog->setAutoClose(false);
+    m_updateProgressDialog->setAutoReset(false);
+    m_updateProgressDialog->setMinimumDuration(0);
+    m_updateProgressDialog->setValue(0);
+
+    m_updateState = UpdateState::Downloading;
+    refreshAbout();
+
+    QNetworkRequest request{QUrl(m_latestDownloadUrl)};
+    request.setRawHeader("User-Agent", "EasyCloudHFS-Updater");
+#if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+#endif
+    m_updateDownloadReply = m_updateNetwork->get(request);
+
+    connect(m_updateDownloadReply, &QNetworkReply::readyRead, this, [this]() {
+        if (!m_updateDownloadReply || !m_updateFile || !m_updateFile->isOpen()) {
+            return;
+        }
+        const QByteArray chunk = m_updateDownloadReply->readAll();
+        if (!chunk.isEmpty() && m_updateFile->write(chunk) != chunk.size()) {
+            m_updateDownloadError = m_updateFile->errorString();
+            m_updateDownloadReply->abort();
+        }
+    });
+    connect(m_updateDownloadReply, &QNetworkReply::downloadProgress, this, [this](qint64 received, qint64 total) {
+        if (!m_updateProgressDialog) {
+            return;
+        }
+        if (total > 0) {
+            m_updateProgressDialog->setRange(0, 1000);
+            m_updateProgressDialog->setValue(static_cast<int>(qBound<qint64>(0, received * 1000 / total, 1000)));
+            m_updateProgressDialog->setLabelText(
+                tx(QStringLiteral("正在下載 %1… %2 / %3 MB")
+                       .arg(QStringLiteral("v") + m_latestVersion)
+                       .arg(QString::number(received / 1024.0 / 1024.0, 'f', 1))
+                       .arg(QString::number(total / 1024.0 / 1024.0, 'f', 1)),
+                   QStringLiteral("Downloading %1... %2 / %3 MB")
+                       .arg(QStringLiteral("v") + m_latestVersion)
+                       .arg(QString::number(received / 1024.0 / 1024.0, 'f', 1))
+                       .arg(QString::number(total / 1024.0 / 1024.0, 'f', 1))));
+        } else {
+            m_updateProgressDialog->setRange(0, 0);
+        }
+    });
+    connect(m_updateProgressDialog, &QProgressDialog::canceled, this, [this]() {
+        if (m_updateDownloadReply) {
+            m_updateDownloadReply->abort();
+        }
+    });
+    connect(m_updateDownloadReply, &QNetworkReply::finished, this, &MainWindow::finishUpdateDownload);
+}
+
+void MainWindow::finishUpdateDownload()
+{
+    QNetworkReply *reply = m_updateDownloadReply;
+    m_updateDownloadReply = nullptr;
+    const bool canceled = m_updateProgressDialog && m_updateProgressDialog->wasCanceled();
+
+    if (reply && m_updateFile && m_updateFile->isOpen()) {
+        const QByteArray remaining = reply->readAll();
+        if (!remaining.isEmpty() && m_updateFile->write(remaining) != remaining.size() && m_updateDownloadError.isEmpty()) {
+            m_updateDownloadError = m_updateFile->errorString();
+        }
+        m_updateFile->flush();
+        m_updateFile->close();
+    }
+
+    QString error = m_updateDownloadError;
+    if (!canceled && reply && reply->error() != QNetworkReply::NoError && error.isEmpty()) {
+        error = reply->errorString();
+    }
+    if (!canceled && error.isEmpty()) {
+        const qint64 actualSize = QFileInfo(m_updateDownloadPath).size();
+        if (actualSize <= 0) {
+            error = tx(QStringLiteral("下載到的更新檔案是空的。"), QStringLiteral("The downloaded update file is empty."));
+        } else if (m_latestAssetSize > 0 && actualSize != m_latestAssetSize) {
+            error = tx(QStringLiteral("更新檔案大小不正確，請重新下載。"), QStringLiteral("The update file size is incorrect. Please try again."));
+        } else {
+            QFile executableCheck(m_updateDownloadPath);
+            if (!executableCheck.open(QIODevice::ReadOnly)
+                || executableCheck.read(2) != QByteArrayLiteral("MZ")) {
+                error = tx(QStringLiteral("下載內容不是有效的 Windows 執行檔。"),
+                           QStringLiteral("The downloaded file is not a valid Windows executable."));
+            }
+        }
+    }
+
+    if (reply) {
+        reply->deleteLater();
+    }
+    if (m_updateFile) {
+        m_updateFile->deleteLater();
+        m_updateFile = nullptr;
+    }
+    if (m_updateProgressDialog) {
+        m_updateProgressDialog->close();
+        m_updateProgressDialog->deleteLater();
+        m_updateProgressDialog = nullptr;
+    }
+
+    if (canceled) {
+        QFile::remove(m_updateDownloadPath);
+        m_updateState = UpdateState::Available;
+        refreshAbout();
+        return;
+    }
+
+    if (!error.isEmpty()) {
+        QFile::remove(m_updateDownloadPath);
+        m_updateState = UpdateState::Available;
+        refreshAbout();
+        QMessageBox::critical(this,
+                              tx(QStringLiteral("更新下載失敗"), QStringLiteral("Update Download Failed")),
+                              error);
+        return;
+    }
+
+    if (!scheduleSelfUpdate(m_updateDownloadPath)) {
+        QFile::remove(m_updateDownloadPath);
+        m_updateState = UpdateState::Available;
+        refreshAbout();
+        QMessageBox::critical(this,
+                              tx(QStringLiteral("無法啟動更新"), QStringLiteral("Unable to Start Update")),
+                              tx(QStringLiteral("無法建立或啟動自動替換程式。"),
+                                 QStringLiteral("Unable to create or launch the automatic updater.")));
+        return;
+    }
+
+    m_forceExit = true;
+    if (m_controller->isServerRunning()) {
+        m_controller->stopServer();
+    }
+    QCoreApplication::quit();
+}
+
+bool MainWindow::scheduleSelfUpdate(const QString &downloadedPath)
+{
+#ifdef Q_OS_WIN
+    const QString targetPath = QDir::toNativeSeparators(QCoreApplication::applicationFilePath());
+    const QString newPath = QDir::toNativeSeparators(downloadedPath);
+    const QString scriptPath = QDir::toNativeSeparators(
+        QCoreApplication::applicationFilePath() + QStringLiteral(".updater.vbs"));
+
+    const QString script = QStringLiteral(
+        "Option Explicit\r\n"
+        "Dim shell, fso, svc, processes, appPid, newPath, targetPath, copied, attempt\r\n"
+        "Set shell = CreateObject(\"WScript.Shell\")\r\n"
+        "Set fso = CreateObject(\"Scripting.FileSystemObject\")\r\n"
+        "Set svc = GetObject(\"winmgmts:\\\\.\\root\\cimv2\")\r\n"
+        "appPid = %1\r\n"
+        "newPath = %2\r\n"
+        "targetPath = %3\r\n"
+        "Do\r\n"
+        "  Set processes = svc.ExecQuery(\"SELECT ProcessId FROM Win32_Process WHERE ProcessId = \" & appPid)\r\n"
+        "  If processes.Count = 0 Then Exit Do\r\n"
+        "  WScript.Sleep 300\r\n"
+        "Loop\r\n"
+        "copied = False\r\n"
+        "For attempt = 1 To 60\r\n"
+        "  Err.Clear\r\n"
+        "  On Error Resume Next\r\n"
+        "  fso.CopyFile newPath, targetPath, True\r\n"
+        "  If Err.Number = 0 Then copied = True\r\n"
+        "  On Error GoTo 0\r\n"
+        "  If copied Then Exit For\r\n"
+        "  WScript.Sleep 500\r\n"
+        "Next\r\n"
+        "If Not copied Then\r\n"
+        "  shell.Popup \"Easy Cloud HFS update failed. The previous version will be restarted.\", 15, \"Easy Cloud HFS\", 16\r\n"
+        "  If fso.FileExists(targetPath) Then shell.Run \"\"\"\" & targetPath & \"\"\"\", 1, False\r\n"
+        "  WScript.Quit 1\r\n"
+        "End If\r\n"
+        "On Error Resume Next\r\n"
+        "fso.DeleteFile newPath, True\r\n"
+        "On Error GoTo 0\r\n"
+        "shell.Run \"\"\"\" & targetPath & \"\"\"\", 1, False\r\n"
+        "On Error Resume Next\r\n"
+        "fso.DeleteFile WScript.ScriptFullName, True\r\n"
+        "On Error GoTo 0\r\n")
+                               .arg(QString::number(QCoreApplication::applicationPid()),
+                                    vbStringLiteral(newPath),
+                                    vbStringLiteral(targetPath));
+
+    QByteArray encoded;
+    encoded.reserve(2 + script.size() * 2);
+    encoded.append(char(0xFF));
+    encoded.append(char(0xFE));
+    for (const QChar character : script) {
+        const ushort value = character.unicode();
+        encoded.append(static_cast<char>(value & 0xFF));
+        encoded.append(static_cast<char>((value >> 8) & 0xFF));
+    }
+
+    QFile scriptFile(scriptPath);
+    if (!scriptFile.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        return false;
+    }
+    if (scriptFile.write(encoded) != encoded.size()) {
+        scriptFile.close();
+        QFile::remove(scriptPath);
+        return false;
+    }
+    scriptFile.close();
+
+    const bool started = QProcess::startDetached(QStringLiteral("wscript.exe"),
+                                                 {QStringLiteral("//B"), QStringLiteral("//Nologo"), scriptPath});
+    if (!started) {
+        QFile::remove(scriptPath);
+    }
+    return started;
+#else
+    Q_UNUSED(downloadedPath)
+    return false;
+#endif
 }
 
 void MainWindow::refreshStartStopButton()
