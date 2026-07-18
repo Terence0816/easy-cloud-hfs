@@ -18,6 +18,27 @@ This project is designed as a portable Windows desktop tool with a native C++ / 
 
 > This project is source-available for personal, educational, research, and non-commercial use only.
 
+## Latest Update — v1.2.9.0
+
+This release improves password-protected web access and adds automatic version checking and updating.
+
+### What's New
+
+* Added a **Logout** option for password-protected web shares.
+  * After entering the access password, users can manually log out when they have finished using the shared page.
+  * Logging out clears the current authorization, so the password must be entered again the next time the page is opened.
+  * This is useful when accessing shared files temporarily from a public or shared device.
+
+* Added automatic update checking to the **About** page.
+  * The application automatically checks the latest version available on GitHub.
+  * When a newer version is available, the application displays an update notification.
+  * Users can click the update prompt to automatically download and install the latest version.
+
+### Fixes
+
+* Fixed an incorrect GitHub project link on the **About** page.
+
+
 ## Latest Update — v1.2.2.8
 
 * Added an **Open Web Page** button next to the server control button on the main screen, making it easier to view the configured file-sharing webpage.
@@ -318,6 +339,26 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 本專案設計為原生 C++ / Qt Widgets 的 Windows 桌面工具，重點是簡單、直覺、免安裝與可攜式使用。
 
 > 本專案原始碼僅供個人、學習、研究與非商業用途使用。
+
+## v1.2.9.0 主要更新
+
+本次更新改善密碼保護分享網頁的使用安全性，並新增版本自動檢查及更新功能。
+
+### 新增功能
+
+* 密碼保護的分享網頁新增 **登出** 功能。
+  * 使用者輸入存取密碼後，可在使用完畢時手動登出。
+  * 登出後會清除目前的登入授權，下次重新進入網頁時需要再次輸入密碼。
+  * 適合在公用電腦或臨時使用其他裝置時，安全地結束分享網頁存取。
+
+* 「關於」頁面新增自動版本檢查功能。
+  * 程式會自動檢查 GitHub 上目前發布的最新版本。
+  * 發現新版本時，會顯示可更新的提示。
+  * 點擊更新提示後，即可自動下載並安裝最新版本。
+
+### 問題修正
+
+* 修正「關於」頁面的 GitHub 專案連結錯誤問題。
 
 ## v1.2.2.8 主要更新
 
