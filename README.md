@@ -18,7 +18,7 @@ This project is designed as a portable Windows desktop tool with a native C++ / 
 
 > This project is source-available for personal, educational, research, and non-commercial use only.
 
-## Latest Update — v1.2.9.0
+## Latest Update — v1.2.3.0
 
 This release improves password-protected web access and adds automatic version checking and updating.
 
@@ -340,7 +340,7 @@ Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 
 > 本專案原始碼僅供個人、學習、研究與非商業用途使用。
 
-## v1.2.9.0 主要更新
+## v1.2.3.0 主要更新
 
 本次更新改善密碼保護分享網頁的使用安全性，並新增版本自動檢查及更新功能。
 
