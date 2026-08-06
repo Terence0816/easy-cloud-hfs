@@ -4,7 +4,10 @@ Lightweight Windows HTTP file sharing server inspired by HFS.
 
 ![Downloads](https://img.shields.io/github/downloads/Terence0816/easy-cloud-hfs/total?label=Downloads)
 ![Release](https://img.shields.io/github/v/release/Terence0816/easy-cloud-hfs?label=Release)
-[Releases](https://github.com/Terence0816/easy-cloud-hfs/releases)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Language](https://img.shields.io/badge/interface-%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87%20%7C%20English-blueviolet)
+
+[Download Latest Release](https://github.com/Terence0816/easy-cloud-hfs/releases/latest) · [All Releases](https://github.com/Terence0816/easy-cloud-hfs/releases)
 
 English | [繁體中文](#繁體中文)
 
@@ -12,154 +15,140 @@ English | [繁體中文](#繁體中文)
 
 Easy Cloud HFS is a lightweight **Windows HTTP file sharing server**.
 
-It turns your Windows PC into a simple file sharing server, allowing other devices to access shared files through a web browser. It supports local network sharing and can also create a temporary public access URL through Cloudflare Tunnel.
+It turns a Windows PC into a simple file sharing server, allowing other devices to browse, download, upload, preview, and manage shared files through a web browser. It supports local network sharing and can optionally create a temporary public access URL through Cloudflare Tunnel.
 
-This project is designed as a portable Windows desktop tool with a native C++ / Qt Widgets interface.
+The current v2 release is rebuilt as a compact native C++ Windows application with no Qt runtime dependency.
 
-> This project is source-available for personal, educational, research, and non-commercial use only.
+> [!IMPORTANT]
+> **Source code status:** Starting with **v2.0.0.0**, the current program source code is no longer published or updated in this repository.  
+> The source files currently retained in this repository are provided only as a legacy reference for an earlier version and do **not** correspond to the current v2 release.  
+> Current releases are distributed through the GitHub Releases page as compiled Windows executables.
 
-## Latest Update — v1.2.3.0
+## Latest Release — v2.0.0.0
 
-This release improves password-protected web access and adds automatic version checking and updating.
+Easy Cloud HFS v2.0.0.0 is a major update that completely rebuilds the application using native C++.
 
-### What's New
+### Desktop Controller
 
-* Added a **Logout** option for password-protected web shares.
-  * After entering the access password, users can manually log out when they have finished using the shared page.
-  * Logging out clears the current authorization, so the password must be entered again the next time the page is opened.
-  * This is useful when accessing shared files temporarily from a public or shared device.
+* Rebuilt the application architecture using native C++.
+* Removed the dependency on the Qt runtime environment.
+* Reduced the executable size from approximately **16.1 MB** to approximately **2.84 MB**.
+* Improved startup speed, runtime efficiency, memory usage, and overall resource consumption.
+* The application now opens directly to **Share Management**, making it faster to add and manage shared items.
+* Refined interface elements, operation flows, and feature layouts for a more intuitive experience.
 
-* Added automatic update checking to the **About** page.
-  * The application automatically checks the latest version available on GitHub.
-  * When a newer version is available, the application displays an update notification.
-  * Users can click the update prompt to automatically download and install the latest version.
+### Web Interface and Media Playback
 
-### Fixes
-
-* Fixed an incorrect GitHub project link on the **About** page.
-
-
-## Latest Update — v1.2.2.8
-
-* Added an **Open Web Page** button next to the server control button on the main screen, making it easier to view the configured file-sharing webpage.
-* Added support for changing the display name of a shared folder by clicking its folder name. The actual local folder path remains unchanged, while web visitors will see the newly configured share name.
-* Added **Current File Download and Packaging Progress** to the dashboard, allowing the server administrator to clearly view the file name and download progress of each active transfer.
-* Added an **Automatically Start Server When Application Starts** option in System Settings, allowing the server service to start automatically when the application is launched manually.
-
-## Web Interface
-
-* Added the ability to package and download shared folders as ZIP files, making it easier to download an entire folder.
-* Improved the file list so that images, videos, audio files, and regular files now display their file sizes.
-* Added a clearly visible **Direct Download** button on the right side of regular files.
-
-
-## Latest Update — v1.2.2.0
-
-Easy Cloud HFS Windows v1.2.2.0 adds optional browser-based chat for shared pages, improves share management usability, optimizes text scaling for high-resolution displays, and fixes duplicate application launches.
-
-### What's New
-
-* Added an optional **browser-based chat feature** to Share Management.
-* Chat can be enabled for shared pages, allowing users to communicate through a lightweight chat interface while accessing shared content.
-* Added a **chat usage tip** to the share settings page for clearer guidance.
-* Improved the **drag-and-drop area** with a more visible drop zone and clearer instructional text.
-* Added **resolution-aware text scaling** to improve readability on high-resolution displays and prevent interface text from appearing too small on 2K / 4K screens.
-* Improved selected-state indicators with a more intuitive **purple background and white checkmark** design.
-* Fixed an issue where accidentally launching the application multiple times could create duplicate running instances.
+* Improved the playback interface and controls for music and video files.
+* Added a music playlist.
+* Added shuffle playback.
+* Added quick track switching.
+* Redesigned the online video player for clearer operation.
+* Added automatic subtitle loading for supported video playback.
+* Improved the PotPlayer playback workflow on Windows.
+* Added support for automatically loading subtitle files from the same folder when using PotPlayer.
 
 ## Features
 
-* Windows HTTP file sharing server
-* Native C++ / Qt Widgets desktop application
-* Single EXE portable design
+* Lightweight Windows HTTP file sharing server
+* Native C++ desktop application
+* Compact single-EXE portable design
 * No installation required
+* No Qt runtime dependency
 * Local network file sharing
 * Optional Cloudflare Tunnel external access
 * Automatically generates a temporary `trycloudflare.com` public URL
 * Drag-and-drop file and folder sharing
 * Share files, folders, and virtual folders
+* Rename the displayed name of a shared folder without changing its local path
 * Optional browser-based chat for shared pages
 * Share-level chat enable / disable control
 * Upload permission control
 * Delete permission control
 * Create-folder permission control
-* Download password support
+* Password-protected access
+* Logout support for password-protected web shares
 * HTTP Range request support for resume and media seeking
 * Large-file upload support
+* Package and download shared folders as ZIP files
 * Web-based file manager
-* Web interface language switching between Traditional Chinese and English
-* Browser drag-and-drop upload for files and folders when write/upload permission is enabled
-* Multiple files and folders can be uploaded in a single drag-and-drop operation
-* Resolution-aware text scaling for high-DPI and 2K / 4K displays
+* Traditional Chinese and English web interface
+* Browser drag-and-drop upload for files and folders
+* Multiple-file and multiple-folder upload
 * Online video and audio playback
-* Subtitle auto-load support
+* Music playlist and shuffle playback
+* Automatic subtitle loading
 * PotPlayer launch support for Windows clients
 * Image preview and slideshow support
+* Multi-file selection
 * Real-time dashboard
+* Current file download and packaging progress
 * Server activity log
 * Minimize to system tray
 * Optional launch on Windows startup
-* Traditional Chinese desktop interface
+* Optional automatic server startup when the application starts
+* Automatic version checking and updating
+* High-DPI and 2K / 4K display optimization
 * Windows 10 / 11 support
-* Windows 7 compatibility support for main application features
+* Main application features remain compatible with Windows 7
 
 ## Main Use Cases
 
-* Share files from a Windows PC to devices on the same LAN
+* Share files from a Windows PC with devices on the same local network
 * Use a PC as a lightweight temporary file server
-* Share files with friends or customers through a browser
-* Use the optional browser chat for lightweight communication while sharing files
+* Share files with friends, customers, or coworkers through a browser
 * Transfer files without installing a client program on the receiving device
-* Create a temporary external public link with Cloudflare Tunnel
-* Stream videos or music directly from the Windows PC
-* Use a desktop computer as a portable private cloud disk
+* Create a temporary external public link through Cloudflare Tunnel
+* Stream videos or music directly from a Windows PC
+* Use a desktop or notebook computer as a lightweight private cloud drive
+* Provide optional browser chat while exchanging files
 
 ## How It Works
 
-1. Start Easy Cloud HFS on your Windows PC.
-2. Drag files or folders into the app, or create shares manually.
-3. Open the LAN address from another device in a browser.
-4. Optional: enable Cloudflare Tunnel to create an external public URL.
-5. Use upload, delete, and create-folder permissions depending on your needs.
+1. Download and start `EasyCloudHFS.exe`.
+2. Add files or folders through Share Management.
+3. Open the displayed LAN address from another device in a browser.
+4. Configure upload, delete, create-folder, chat, and password permissions as needed.
+5. Optionally enable Cloudflare Tunnel to create a temporary external public URL.
 
 ## Interface Overview
 
+### Share Management
+
+The program opens directly to Share Management in v2.0.0.0, allowing shared items to be added and managed quickly.
+
+![Share Management](assets/screenshots/share-en.png)
+
+Supported controls include:
+
+* Enable or disable a share
+* Change the displayed share name
+* Enable or disable browser chat
+* Allow upload
+* Allow delete
+* Allow folder creation
+* Configure password protection
+
 ### Dashboard
 
-The dashboard shows basic server status and real-time statistics.
+The dashboard shows server status and real-time statistics.
 
 ![Dashboard](assets/screenshots/home-en.png)
 
-It can display:
+Information may include:
 
 * Total download count
 * Total transferred data
 * Current connection count
 * Current transfer speed
+* Current file download and packaging progress
 * Recent server activity
 * LAN address
 * Cloudflare Tunnel public URL
 
-### Share Management
-
-The share page allows you to add files, add folders, create virtual folders, manage existing shared items, and optionally enable browser chat for shared pages.
-
-![Share Management](assets/screenshots/share-en.png)
-
-Each shared item can be controlled individually.
-
-Supported permissions include:
-
-* Enable / disable share
-* Enable / disable browser chat
-* Allow upload
-* Allow delete
-* Allow create folder
-* Password protection
-
 ### Settings
 
-The settings page allows you to change server and application behavior.
+The settings page controls server and application behavior.
 
 ![Settings](assets/screenshots/settings-en.png)
 
@@ -173,18 +162,29 @@ Available settings include:
 * HTTP Range / resume support
 * Minimize to system tray
 * Launch on Windows startup
+* Automatically start the server when the application starts
 
 ## Web Interface
 
-Clients can access shared files through a browser.
+Clients can access shared files through a standard web browser.
 
-The web interface supports manual language switching. Users browsing the shared site can directly switch the browser interface between **Traditional Chinese** and **English**.
+The web interface supports:
 
-When the current folder has write/upload permission, users can also drag files or folders directly into the browser page to upload them. Multiple files and multiple folders can be dragged and uploaded together in a single operation.
+* File and folder browsing
+* Direct file downloads
+* Folder packaging and ZIP download
+* File and folder upload when permission is enabled
+* Drag-and-drop browser upload
+* Multi-file selection
+* Traditional Chinese and English language switching
+* Optional browser chat
+* Image preview
+* Music and video playback
+* Automatic subtitle loading
 
 ### Browser Chat
 
-Shared pages can optionally provide a lightweight browser-based chat room for simple communication while users browse or exchange files. Visitors can enter a display name and leave messages without a separate client application.
+Shared pages can optionally provide a lightweight browser-based chat room.
 
 ![Browser Chat](assets/screenshots/web_chat.png)
 
@@ -196,26 +196,9 @@ Shared pages can optionally provide a lightweight browser-based chat room for si
 
 ![Web Image Preview](assets/screenshots/web_image_preview.png)
 
-### MP4 / Video Player
+### Video Player
 
-![Web MP4 Player](assets/screenshots/web_player_mp4.png)
-
-The web interface is designed for simple access, file browsing, file download, media preview, language switching, optional browser chat, and browser-based upload when permissions are enabled.
-
-## Cloudflare Tunnel
-
-Easy Cloud HFS can use Cloudflare Tunnel to create a temporary public access URL.
-
-This allows external access without:
-
-* Public IP
-* Router port forwarding
-* DDNS setup
-* Firewall changes
-
-When the tunnel is connected, the app shows the generated public URL.
-
-> Cloudflare Tunnel public URLs are temporary and may change after restarting the server or tunnel.
+![Web Video Player](assets/screenshots/web_player_mp4.png)
 
 ## Media Streaming
 
@@ -225,106 +208,134 @@ Supported features include:
 
 * HTML5 video playback
 * HTML5 audio playback
-* Playlist-style browsing
-* HTTP Range request support
+* Music playlist
+* Shuffle playback
+* Quick track switching
+* HTTP Range requests
 * Video seeking
-* Subtitle auto-load for matching subtitle files
-* PotPlayer launch support for Windows clients
+* Automatic subtitle loading
+* PotPlayer launch support on Windows
+* Automatic same-folder subtitle loading with PotPlayer
 * Image preview and slideshow-style browsing
+
+## Cloudflare Tunnel
+
+Easy Cloud HFS can use Cloudflare Tunnel to create a temporary public access URL.
+
+This allows external access without requiring:
+
+* A public IP address
+* Router port forwarding
+* DDNS configuration
+* Manual firewall changes
+
+> [!NOTE]
+> Cloudflare Tunnel public URLs are temporary and may change after restarting the server or tunnel.
 
 ## Permissions and Security
 
 Each shared item can have its own permissions.
 
-You can decide whether users are allowed to:
+You can decide whether visitors are allowed to:
 
 * Upload files
 * Delete files
 * Create folders
-* Access protected shares with a password
+* Use browser chat
+* Access password-protected content
 
-The app also supports a global download password to reduce unauthorized access.
+Password-protected pages include a logout option so authorization can be cleared after use.
 
-> If you enable external access, please only share the URL with people you trust.
+> [!WARNING]
+> When external access is enabled, only share the public URL with people you trust. Do not expose private or sensitive files without appropriate protection.
 
-## Portable Files
+## Portable Use
 
-Easy Cloud HFS is designed to be portable.
+Easy Cloud HFS is designed as a portable Windows application.
 
-Runtime files and settings are stored near the executable when possible.
+Download the executable and run it directly without installation. Settings and required runtime data may be created beside the executable depending on the enabled features.
 
-Common files and folders may include:
+Typical release files:
 
 ```text
 EasyCloudHFS.exe
-EasyCloudHFS.exe.sha256.txt
-easycloudhfs.json
-runtime\
-virtual\
-bin\cloudflared.exe
+EasyCloudHFS.exe_sha256.txt
 ```
 
 ## Download
 
-Download the latest Windows executable from the GitHub Releases page:
+Download the latest Windows release here:
 
-[Easy Cloud HFS Releases](https://github.com/Terence0816/easy-cloud-hfs/releases)
+[Download Easy Cloud HFS](https://github.com/Terence0816/easy-cloud-hfs/releases/latest)
 
-Release assets usually include:
+Please download only from the official GitHub Releases page.
 
-```text
-EasyCloudHFS.exe
-EasyCloudHFS.exe.sha256.txt
-```
+## SHA-256 Verification
 
-## SHA-256
-
-For each release, please verify the executable using the accompanying:
+Each release includes a SHA-256 verification file:
 
 ```text
-EasyCloudHFS.exe.sha256.txt
+EasyCloudHFS.exe_sha256.txt
 ```
 
-This avoids relying on an outdated hash after a new version is published.
+On Windows PowerShell, you can calculate the executable hash with:
+
+```powershell
+Get-FileHash .\EasyCloudHFS.exe -Algorithm SHA256
+```
+
+Compare the result with the value inside `EasyCloudHFS.exe_sha256.txt`.
+
+## Source Code Status
+
+Starting with **v2.0.0.0**, the current application source code is no longer published or updated in this repository.
+
+The source code already present in the repository:
+
+* Belongs to an earlier legacy version
+* Is retained for reference and study
+* Does not represent the architecture or complete implementation of v2.0.0.0
+* Should not be expected to build the current release executable
+* Will not receive updates that track future compiled releases
+
+For the current program, please use the executable provided on the official Releases page.
 
 ## Notes
 
-* This is the Windows desktop version of Easy Cloud HFS.
-* Please download only from the official GitHub Releases page.
-* Cloudflare Tunnel public URLs are temporary and may change after restarting the server or tunnel.
-* Some features may require running the program as Administrator.
-* If Windows Defender SmartScreen or antivirus software shows a warning, this may be because the executable is newly released.
-* Please test in your own environment before long-term or public sharing.
-* If you enable external access, only share the public URL with people you trust.
+* This repository is the official project page for the Windows version of Easy Cloud HFS.
+* Current releases are provided as compiled Windows executables.
+* Some operations may require running the application as Administrator.
+* Windows Defender SmartScreen or antivirus software may warn about a newly released executable.
+* Test the program in your own environment before using it for long-term or public sharing.
+* Cloudflare Tunnel public URLs are temporary.
+* Only share files that you own or are authorized to distribute.
 
-## Search Keywords
+## Legacy Source License
 
-Windows file sharing server, Windows HFS, HTTP file server, Windows cloud file server, LAN file sharing, Cloudflare Tunnel Windows, trycloudflare file sharing, Windows web file manager, Windows file upload server, drag and drop upload, folder upload, browser chat, file sharing chat, high DPI scaling, multilingual web interface, Traditional Chinese English web interface, Windows media streaming server, PotPlayer streaming, Windows QR file sharing, Windows virtual folder sharing, portable file server, single exe file server
+The legacy source files retained in this repository are source-available for personal, educational, research, and internal non-commercial use only.
 
-## License
-
-This project is source-available for personal, educational, research, and non-commercial use only.
-
-You may view, study, and modify the source code for personal, educational, research, and internal non-commercial use.
+You may view, study, and modify those legacy source files for the permitted purposes above.
 
 Without written permission from the author, you may not:
 
-* Use this project or its source code in commercial products.
-* Use this project or its source code in paid services.
-* Sell this software or modified versions.
-* Redistribute rebranded versions as your own product.
-* Remove or hide the original author information.
-* Use the project name, icon, or branding for commercial distribution.
+* Use the source code in commercial products
+* Use the source code in paid services
+* Sell the software or modified versions
+* Redistribute rebranded versions as your own product
+* Remove or hide the original author information
+* Use the project name, icon, or branding for commercial distribution
 
-Commercial use requires written permission from the author.
+Commercial use of the legacy source code requires written permission from the author.
+
+> This legacy source license does not mean that the current v2 source code is included in this repository.
 
 ## Disclaimer
 
 This software is provided as-is.
 
-The author does not guarantee full compatibility with every Windows environment, network environment, browser, or media player.
+The author does not guarantee full compatibility with every Windows environment, network environment, browser, media player, or security product.
 
-Please use this tool only for files you own or have permission to share.
+Use this tool only for files that you own or have permission to share.
 
 ---
 
@@ -334,148 +345,136 @@ Please use this tool only for files you own or have permission to share.
 
 Easy Cloud HFS 是一套輕量化的 **Windows HTTP 檔案分享伺服器**。
 
-它可以將 Windows 電腦變成簡易檔案分享伺服器，讓其他裝置透過瀏覽器存取分享檔案。除了區域網路分享外，也可以透過 Cloudflare Tunnel 建立臨時外部公開連結，方便遠端存取。
+它可以將 Windows 電腦變成簡易檔案分享伺服器，讓其他裝置透過瀏覽器瀏覽、下載、上傳、預覽及管理分享檔案。除了區域網路分享，也可以透過 Cloudflare Tunnel 建立臨時外部公開網址。
 
-本專案設計為原生 C++ / Qt Widgets 的 Windows 桌面工具，重點是簡單、直覺、免安裝與可攜式使用。
+目前的 v2 版本已改用精簡的原生 C++ 全面重建，不再依賴 Qt 執行環境。
 
-> 本專案原始碼僅供個人、學習、研究與非商業用途使用。
+> [!IMPORTANT]
+> **原始碼狀態：自 v2.0.0.0 起，目前程式的原始碼不再於此儲存庫公開或持續更新。**  
+> 儲存庫內目前保留的原始碼僅供舊版參考，並不對應現在的 v2 版本。  
+> 最新版本將透過 GitHub Releases 頁面提供編譯完成的 Windows 執行檔。
 
-## v1.2.3.0 主要更新
+## 最新版本 — v2.0.0.0
 
-本次更新改善密碼保護分享網頁的使用安全性，並新增版本自動檢查及更新功能。
+Easy Cloud HFS v2.0.0.0 是一次重大版本更新，程式已全面改用原生 C++ 重建。
 
-### 新增功能
+### 主控端
 
-* 密碼保護的分享網頁新增 **登出** 功能。
-  * 使用者輸入存取密碼後，可在使用完畢時手動登出。
-  * 登出後會清除目前的登入授權，下次重新進入網頁時需要再次輸入密碼。
-  * 適合在公用電腦或臨時使用其他裝置時，安全地結束分享網頁存取。
+* 底層架構全面改用原生 C++ 重建。
+* 不再依賴 Qt 執行環境。
+* 程式容量由原本約 **16.1 MB** 大幅縮減至約 **2.84 MB**。
+* 提升程式啟動速度、執行效率及記憶體與系統資源使用表現。
+* 啟動程式後預設直接進入 **「分享管理」** 頁面，新增與管理分享更加快速。
+* 重新調整部分介面、操作流程與功能配置，使操作更加直覺便利。
 
-* 「關於」頁面新增自動版本檢查功能。
-  * 程式會自動檢查 GitHub 上目前發布的最新版本。
-  * 發現新版本時，會顯示可更新的提示。
-  * 點擊更新提示後，即可自動下載並安裝最新版本。
+### 網頁端與影音播放
 
-### 問題修正
-
-* 修正「關於」頁面的 GitHub 專案連結錯誤問題。
-
-## v1.2.2.8 主要更新
-
-主控台部份：
-* 新增 主畫面伺服器控制按鈕旁新增 **開啟連結網頁** 按鈕，方便查看設定的分享網頁內容。
-* 新增 分享資料夾時，可以點擊資料夾名稱後，可以修改分享的名稱，但實際路徑不會變，網頁瀏覽即可看到設定的資料夾名稱
-* 新增 儀表板 **目前檔案下載與打包進度** ，可以清楚看到下載者的檔案名稱及下載進度
-* 新增 系統設定 **啟動程式時自動啟用伺服器** 選項，以便手動啟動時，就會直接啟動服務器
-
-網頁部份：
-* 新增 網頁遇到增資料夾目錄，可以選擇打包後下載，方便下載目錄的功能。
-* 優化 圖片、影片、音樂及一般檔案現在都會在網頁列表中顯示檔案大小。
-* 優化 一般檔案右側新增明確的 **直接下載** 按鈕。
-
-## v1.2.2.0 主要更新
-
-Easy Cloud HFS Windows v1.2.2.0 新增可選擇啟用的網頁聊天室功能，並進一步改善分享管理操作介面、高解析度螢幕顯示效果與整體使用體驗，同時修復程式重複啟動問題。
-
-### 主要更新與修復
-
-* **分享管理新增聊天室功能**，可依需求選擇是否啟用。
-* 啟用聊天室後，使用者可在瀏覽分享頁面時透過簡易網頁聊天室進行文字溝通，方便分享檔案時同步交流。
-* 分享設定頁面新增 **聊天室功能小提示**，讓相關設定與用途更加清楚。
-* 改善分享管理中的 **拖曳區塊**，強化拖放區域的視覺辨識度，並調整文字說明，使操作方式更加直覺。
-* 新增 **依螢幕解析度自動優化文字大小** 的顯示機制，改善 2K／4K 等高解析度環境下介面文字過小的問題。
-* 改善項目 **選取狀態顯示方式**，調整為紫色背景搭配白色勾選標記，使目前選取狀態更加清楚直覺。
-* 修復不小心重複啟動程式時，可能產生多個程式執行個體的問題。
+* 優化音樂及影片的播放介面與操作方式。
+* 音樂播放器新增播放清單。
+* 新增隨機播放功能。
+* 新增歌曲快速切換功能。
+* 重新設計線上影片播放介面，操作更加清楚。
+* 支援自動載入字幕。
+* 改善 Windows 本機 PotPlayer 播放流程。
+* 使用 PotPlayer 播放時，支援自動載入同一目錄內的字幕檔。
 
 ## 功能特色
 
-* Windows HTTP 檔案分享伺服器
-* 原生 C++ / Qt Widgets 桌面程式
-* 單一 EXE 可攜式設計
+* 輕量化 Windows HTTP 檔案分享伺服器
+* 原生 C++ 桌面程式
+* 精簡單一 EXE 可攜式設計
 * 無需安裝，直接執行
+* 不依賴 Qt 執行環境
 * 區域網路檔案分享
 * 可選擇啟用 Cloudflare Tunnel 外部連結
 * 自動產生臨時 `trycloudflare.com` 公開網址
 * 支援拖曳檔案或資料夾快速建立分享
 * 支援分享檔案、資料夾與虛擬資料夾
+* 可修改分享資料夾的顯示名稱，不影響實際本機路徑
 * 分享頁面可選擇啟用網頁聊天室
 * 可個別控制是否啟用聊天室
 * 可控制是否允許上傳
 * 可控制是否允許刪除
 * 可控制是否允許建立資料夾
-* 支援下載密碼
+* 支援密碼保護存取
+* 密碼保護頁面支援登出
 * 支援 HTTP Range Request，方便續傳與影音拖曳播放
 * 支援大檔案上傳
+* 支援將分享資料夾打包為 ZIP 下載
 * 內建網頁端檔案管理介面
-* 網頁端可由瀏覽者手動切換繁體中文與 English
-* 資料夾具備寫入／上傳權限時，支援從瀏覽器直接拖曳檔案或資料夾上傳
-* 支援一次同時拖曳多個檔案與多個資料夾上傳
-* 依螢幕解析度自動優化文字大小，改善 2K／4K 高解析度顯示
+* 網頁端支援繁體中文與 English 切換
+* 支援瀏覽器拖曳上傳檔案與資料夾
+* 支援一次上傳多個檔案及多個資料夾
 * 支援線上影片與音樂播放
+* 音樂播放器支援播放清單與隨機播放
 * 支援字幕自動載入
 * 支援 Windows 端 PotPlayer 喚起播放
 * 支援圖片預覽與投影片瀏覽
+* 支援多檔案選取
 * 即時儀表板
+* 顯示目前檔案下載與打包進度
 * 伺服器運作記錄
 * 可縮小到系統列背景執行
-* 可設定開機自動啟動
-* 繁體中文桌面介面
+* 可設定 Windows 開機自動啟動
+* 可設定啟動程式時自動啟用伺服器
+* 支援自動檢查與安裝新版
+* 改善高 DPI 及 2K／4K 螢幕顯示
 * 支援 Windows 10 / 11
 * Windows 7 可使用主要程式功能
 
 ## 適用情境
 
-* 從 Windows 電腦分享檔案給同一個區域網路內的其他裝置
+* 從 Windows 電腦分享檔案給同一區域網路內的其他裝置
 * 將電腦當成臨時小型檔案伺服器
-* 透過瀏覽器分享檔案給朋友或客戶
-* 分享檔案時可透過選用的網頁聊天室進行簡單溝通
-* 接收端不需要安裝任何客戶端程式
-* 透過 Cloudflare Tunnel 建立臨時外部公開連結
+* 透過瀏覽器分享檔案給朋友、客戶或同事
+* 接收端不需安裝任何客戶端程式即可傳輸檔案
+* 透過 Cloudflare Tunnel 建立臨時外部公開網址
 * 直接從 Windows 電腦串流影片或音樂
-* 將桌機或筆電當成輕量化私有雲端硬碟
+* 將桌機或筆電當成輕量化私人雲端硬碟
+* 分享檔案時透過網頁聊天室進行簡單溝通
 
 ## 使用方式
 
-1. 在 Windows 電腦上啟動 Easy Cloud HFS。
-2. 將檔案或資料夾拖曳到程式內，或手動建立分享。
-3. 從其他裝置的瀏覽器開啟區域網路網址。
-4. 視需要啟用 Cloudflare Tunnel 建立外部公開網址。
-5. 依需求設定上傳、刪除、建立資料夾等權限。
+1. 下載並啟動 `EasyCloudHFS.exe`。
+2. 在「分享管理」中新增檔案或資料夾。
+3. 從其他裝置的瀏覽器開啟程式顯示的區域網路網址。
+4. 依需求設定上傳、刪除、建立資料夾、聊天室與密碼權限。
+5. 視需要啟用 Cloudflare Tunnel，建立臨時外部公開網址。
 
 ## 介面介紹
 
+### 分享管理
+
+v2.0.0.0 啟動後會直接進入「分享管理」，方便快速新增及管理分享項目。
+
+![分享管理](assets/screenshots/share-zh-tw.png)
+
+支援設定：
+
+* 啟用或停用分享
+* 修改分享顯示名稱
+* 啟用或停用網頁聊天室
+* 允許上傳
+* 允許刪除
+* 允許建立資料夾
+* 設定密碼保護
+
 ### 儀表板
 
-儀表板會顯示基本伺服器狀態與即時統計資料。
+儀表板會顯示伺服器狀態與即時統計資料。
 
 ![儀表板](assets/screenshots/home-zh-tw.png)
 
 可顯示：
 
 * 總下載次數
-* 總下載流量
+* 總傳輸流量
 * 目前連線數
 * 即時傳輸速度
+* 目前檔案下載及打包進度
 * 近期伺服器活動
 * 區域網路網址
 * Cloudflare Tunnel 外部網址
-
-### 分享管理
-
-分享頁面可新增檔案、新增資料夾、建立虛擬資料夾、管理目前分享項目，並可依需求啟用網頁聊天室。
-
-![分享管理](assets/screenshots/share-zh-tw.png)
-
-每個分享項目都可以個別控制權限。
-
-支援權限：
-
-* 啟用 / 停用分享
-* 啟用 / 停用聊天室
-* 允許上傳
-* 允許刪除
-* 允許建立資料夾
-* 密碼保護
 
 ### 系統設定
 
@@ -490,37 +489,64 @@ Easy Cloud HFS Windows v1.2.2.0 新增可選擇啟用的網頁聊天室功能，
 * 介面語言
 * 外觀主題
 * 下載密碼
-* HTTP Range / 斷點續傳
-* 關閉視窗時保留在系統列
-* 開機時自動啟動
+* HTTP Range／斷點續傳
+* 縮小到系統列
+* Windows 開機自動啟動
+* 啟動程式時自動啟用伺服器
 
 ## 網頁端介面
 
-使用者可透過瀏覽器存取分享檔案。
+使用者可透過一般瀏覽器存取分享檔案。
 
-網頁端支援手動語言切換，瀏覽分享網站的使用者可直接在瀏覽器介面中切換 **繁體中文** 與 **English**。
+網頁端支援：
 
-當目前資料夾具備寫入／上傳權限時，也可以直接將檔案或資料夾拖曳到瀏覽器頁面中進行上傳，並支援一次同時拖曳多個檔案與多個資料夾。
+* 瀏覽檔案與資料夾
+* 直接下載檔案
+* 將資料夾打包為 ZIP 下載
+* 權限允許時上傳檔案及資料夾
+* 透過瀏覽器拖曳上傳
+* 多檔案選取
+* 繁體中文與 English 切換
+* 選用網頁聊天室
+* 圖片預覽
+* 音樂及影片播放
+* 字幕自動載入
 
 ### 網頁聊天室
 
-分享頁面可依需求選擇啟用簡易網頁聊天室，讓使用者在瀏覽或交換檔案時直接進行文字溝通。訪客可輸入顯示名稱後留言，不需要另外安裝客戶端程式。
+分享頁面可依需求啟用輕量化網頁聊天室。
 
 ![網頁聊天室](assets/screenshots/web_chat.png)
 
-### 多選檔案
+### 多檔案選取
 
-![網頁多選檔案](assets/screenshots/web_multi_select.png)
+![網頁多檔案選取](assets/screenshots/web_multi_select.png)
 
 ### 圖片預覽
 
 ![網頁圖片預覽](assets/screenshots/web_image_preview.png)
 
-### MP4 / 影片播放器
+### 影片播放器
 
-![網頁 MP4 播放器](assets/screenshots/web_player_mp4.png)
+![網頁影片播放器](assets/screenshots/web_player_mp4.png)
 
-網頁端介面設計用於快速存取、瀏覽檔案、下載檔案、預覽媒體、切換顯示語言、選用網頁聊天室，以及在權限允許時透過瀏覽器上傳檔案或資料夾。
+## 影音串流
+
+網頁端支援線上影音播放。
+
+支援功能包含：
+
+* HTML5 影片播放
+* HTML5 音訊播放
+* 音樂播放清單
+* 隨機播放
+* 歌曲快速切換
+* HTTP Range Request
+* 影片拖曳播放
+* 字幕自動載入
+* Windows 端 PotPlayer 喚起播放
+* PotPlayer 自動載入同目錄字幕
+* 圖片預覽與投影片瀏覽
 
 ## Cloudflare Tunnel 外部連結
 
@@ -531,26 +557,10 @@ Easy Cloud HFS 可透過 Cloudflare Tunnel 建立臨時外部公開網址。
 * 公網 IP
 * 路由器 Port Forwarding
 * DDNS 設定
-* 防火牆調整
+* 手動調整防火牆
 
-當 Tunnel 連線完成後，App 會顯示產生的公開網址。
-
+> [!NOTE]
 > Cloudflare Tunnel 公開網址是臨時網址，重新啟動伺服器或 Tunnel 後可能會變更。
-
-## 影音串流
-
-網頁端支援線上影音播放。
-
-支援功能包含：
-
-* HTML5 影片播放
-* HTML5 音訊播放
-* 類播放清單瀏覽
-* HTTP Range Request
-* 影片拖曳播放
-* 自動載入同名字幕檔
-* Windows 端 PotPlayer 喚起播放
-* 圖片預覽與投影片瀏覽
 
 ## 權限與安全
 
@@ -561,87 +571,98 @@ Easy Cloud HFS 可透過 Cloudflare Tunnel 建立臨時外部公開網址。
 * 上傳檔案
 * 刪除檔案
 * 建立資料夾
-* 透過密碼存取受保護的分享
+* 使用網頁聊天室
+* 透過密碼存取受保護內容
 
-本 App 也支援全站下載密碼，降低未授權存取風險。
+密碼保護頁面提供登出功能，使用完畢後可清除目前的登入授權。
 
-> 若啟用外部連結，請只將網址提供給可信任的對象。
+> [!WARNING]
+> 啟用外部連結時，請只將公開網址提供給可信任的對象。未妥善設定保護前，請勿公開私人或敏感檔案。
 
-## 可攜式檔案
+## 可攜式使用
 
-Easy Cloud HFS 設計為可攜式工具。
+Easy Cloud HFS 採用可攜式 Windows 程式設計。
 
-執行時的設定與暫存資料會盡可能存放在主程式旁邊。
+下載執行檔後即可直接使用，無需安裝。依照啟用的功能，設定與必要執行資料可能會建立在主程式旁。
 
-常見檔案與資料夾可能包含：
+一般 Release 檔案包含：
 
 ```text
 EasyCloudHFS.exe
-EasyCloudHFS.exe.sha256.txt
-easycloudhfs.json
-runtime\
-virtual\
-bin\cloudflared.exe
+EasyCloudHFS.exe_sha256.txt
 ```
 
 ## 下載
 
-請至 GitHub Releases 頁面下載最新 Windows 執行檔：
+請從官方 GitHub Releases 頁面下載最新 Windows 版本：
 
-[Easy Cloud HFS Releases](https://github.com/Terence0816/easy-cloud-hfs/releases)
+[下載 Easy Cloud HFS](https://github.com/Terence0816/easy-cloud-hfs/releases/latest)
 
-Release assets 通常包含：
+請勿從不明第三方網站下載程式。
 
-```text
-EasyCloudHFS.exe
-EasyCloudHFS.exe.sha256.txt
-```
+## SHA-256 驗證
 
-## SHA-256
-
-每個版本請使用隨 Release 一起提供的下列檔案驗證主程式：
+每個版本皆會提供 SHA-256 驗證檔：
 
 ```text
-EasyCloudHFS.exe.sha256.txt
+EasyCloudHFS.exe_sha256.txt
 ```
 
-這樣可以避免新版發佈後，README 仍保留舊版本的雜湊值。
+可在 Windows PowerShell 執行：
+
+```powershell
+Get-FileHash .\EasyCloudHFS.exe -Algorithm SHA256
+```
+
+再將計算結果與 `EasyCloudHFS.exe_sha256.txt` 內的數值比對。
+
+## 原始碼狀態
+
+自 **v2.0.0.0** 起，目前程式的原始碼不再於此儲存庫公開或持續更新。
+
+儲存庫內已存在的原始碼：
+
+* 屬於較早期的舊版本
+* 僅保留供參考與研究
+* 不代表 v2.0.0.0 的架構或完整實作
+* 無法視為可編譯出目前版本執行檔的對應原始碼
+* 後續不會跟隨新版執行檔持續更新
+
+需要使用目前版本時，請直接下載官方 Releases 頁面提供的執行檔。
 
 ## 注意事項
 
-* 這是 Easy Cloud HFS 的 Windows 桌面版本。
-* 請只從官方 GitHub Releases 頁面下載。
-* Cloudflare Tunnel 產生的公開網址為臨時網址，重新啟動伺服器或 Tunnel 後可能會變更。
-* 部分功能可能需要使用系統管理員身分執行。
-* 若 Windows Defender SmartScreen 或防毒軟體顯示提醒，可能是因為這是新發行的執行檔。
+* 本儲存庫是 Easy Cloud HFS Windows 版本的官方專案頁面。
+* 最新版本以編譯完成的 Windows 執行檔形式提供。
+* 部分操作可能需要使用系統管理員身分執行。
+* Windows Defender SmartScreen 或防毒軟體可能會對新發行的執行檔顯示提醒。
 * 建議正式長時間或公開分享前，先在自己的環境測試。
-* 若啟用外部連結，請只將公開網址提供給可信任的對象。
+* Cloudflare Tunnel 產生的公開網址為臨時網址。
+* 請只分享您擁有或已取得散布授權的檔案。
 
-## 搜尋關鍵字
+## 舊版原始碼授權
 
-Windows 檔案分享伺服器、Windows HFS、HTTP 檔案伺服器、Windows 雲端檔案伺服器、區域網路檔案分享、Cloudflare Tunnel Windows、trycloudflare 檔案分享、Windows 網頁檔案管理、Windows 檔案上傳伺服器、拖曳上傳、資料夾上傳、網頁聊天室、檔案分享聊天、高解析度介面、多語言網頁介面、繁體中文英文切換、Windows 影音串流伺服器、PotPlayer 串流、Windows QR Code 分享、Windows 虛擬資料夾分享、可攜式檔案伺服器、單一 EXE 檔案伺服器
+本儲存庫內保留的舊版原始碼，僅供個人、學習、研究與內部非商業用途使用。
 
-## 授權
-
-本專案原始碼僅供個人、學習、研究與非商業用途使用。
-
-您可以基於個人、學習、研究與內部非商業用途，檢視、研究與修改本專案原始碼。
+您可以基於上述允許用途，檢視、研究及修改這些舊版原始碼。
 
 未經作者書面同意，不得：
 
-* 用於商業產品。
-* 用於付費服務。
-* 轉售本軟體或修改版本。
-* 改名重新發佈為自己的產品。
-* 移除或隱藏原作者資訊。
-* 使用本專案名稱、圖示或品牌進行商業散佈。
+* 將原始碼用於商業產品
+* 將原始碼用於付費服務
+* 轉售本軟體或修改版本
+* 改名後重新發佈為自己的產品
+* 移除或隱藏原作者資訊
+* 使用本專案名稱、圖示或品牌進行商業散布
 
-商業用途需取得作者書面同意。
+舊版原始碼的商業用途需取得作者書面同意。
+
+> 此舊版原始碼授權不代表本儲存庫包含目前 v2 版本的原始碼。
 
 ## 免責聲明
 
-本工具依現況提供。
+本軟體依現況提供。
 
-作者不保證所有 Windows 環境、網路環境、瀏覽器或播放器皆能完整相容。
+作者不保證所有 Windows 環境、網路環境、瀏覽器、播放器或安全性軟體皆能完整相容。
 
-請僅分享您擁有或被授權分享的檔案。
+請僅使用本工具分享您擁有或已取得授權的檔案。
